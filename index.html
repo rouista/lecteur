@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lecteur Multi-Flux</title>
+    <title>Lecteur Multi-Flux Pro</title>
     
-    <!-- Intégration des deux bibliothèques demandées -->
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.min.js"></script>
+    <!-- Bibliothèques de lecture -->
+    <script src="https://jsdelivr.net"></script>
+    <script src="https://jsdelivr.net"></script>
 
     <style>
         body, html {
@@ -21,13 +21,81 @@
             align-items: center;
             overflow: hidden;
             font-family: Arial, sans-serif;
+            user-select: none;
         }
+        
+        /* Conteneur principal */
+        .player-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
         video {
             width: 100%;
             height: 100%;
             max-width: 100%;
             max-height: 100%;
+            object-fit: contain;
         }
+
+        /* Barre supérieure du lecteur */
+        .top-bar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 15px 20px;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0) 100%);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+            transition: opacity 0.3s ease;
+        }
+
+        /* Masquage automatique de la barre quand la souris ne bouge pas */
+        .player-container.idle .top-bar {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .user-name {
+            color: #fff;
+            font-size: 16px;
+            font-weight: bold;
+            text-shadow: 1px 1px 4px rgba(0, 0, 0, 0.8);
+        }
+
+        .controls-right {
+            display: flex;
+            gap: 15px;
+        }
+
+        .btn-control {
+            background: rgba(255, 255, 255, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 8px 14px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: background 0.2s, transform 0.1s;
+        }
+
+        .btn-control:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(1.05);
+        }
+
+        .btn-control:active {
+            transform: scale(0.95);
+        }
+
         #error-message {
             color: #fff;
             background: rgba(255, 0, 0, 0.8);
@@ -35,14 +103,32 @@
             border-radius: 5px;
             display: none;
             position: absolute;
-            z-index: 10;
+            z-index: 20;
         }
     </style>
 </head>
 <body>
 
-    <div id="error-message">Aucune URL vidéo valide n'a été fournie ou format non supporté.</div>
-    <video id="video" controls autoplay playsinline></video>
+    <div class="player-container" id="playerContainer">
+        
+        <!-- Barre supérieure avec votre nom et boutons -->
+        <div class="top-bar">
+            <!-- Remplacer "Rouista" si nécessaire -->
+            <div class="user-name">Rouista Player</div>
+            <div class="controls-right">
+                <!-- Bouton Cast (DLNA / Chromecast / AirPlay) -->
+                <button class="btn-control" id="castBtn" title="Diffuser sur TV">📺 Cast / DLNA</button>
+                <!-- Bouton Plein Écran -->
+                <button class="btn-control" id="fullscreenBtn" title="Plein écran">🔲 Plein Écran</button>
+            </div>
+        </div>
+
+        <div id="error-message">Aucune URL vidéo valide n'a été fournie ou format non supporté.</div>
+        
+        <!-- Ajout des attributs de diffusion natifs -->
+        <video id="video" controls autoplay playsinline x-webkit-airplay="allow" webkit-playsinline></video>
+    
+    </div>
 
     <script>
         document.addEventListener("DOMContentLoaded", function() {
@@ -50,16 +136,18 @@
             const videoUrl = urlParams.get('url');
             const video = document.getElementById('video');
             const errorDiv = document.getElementById('error-message');
+            const container = document.getElementById('playerContainer');
+            const fullscreenBtn = document.getElementById('fullscreenBtn');
+            const castBtn = document.getElementById('castBtn');
 
             if (!videoUrl) {
                 errorDiv.style.display = 'block';
                 return;
             }
 
-            // Nettoyage de l'URL pour enlever les paramètres lors de la détection de l'extension
+            // --- LECTURE DU FLUX VlDÉO ---
             const cleanUrl = videoUrl.split('?')[0].toLowerCase();
 
-            // 1. CAS DES FLUX HLS (.m3u8)
             if (cleanUrl.includes('.m3u8')) {
                 if (Hls.isSupported()) {
                     const hls = new Hls();
@@ -69,13 +157,9 @@
                     video.src = videoUrl;
                 }
             } 
-            // 2. CAS DES FLUX MPEG-TS (.ts) OU FLV (.flv)
-            else if (cleanUrl.includes('.ts') || cleanUrl.includes('.flv') || mpegts.getFeatureList().msePlayback) {
+            else if (cleanUrl.includes('.ts') || cleanUrl.includes('.flv')) {
                 if (mpegts.isSupported()) {
-                    let type = 'mse'; // par défaut, détection automatique intelligente
-                    if (cleanUrl.includes('.ts')) type = 'mpegts';
-                    if (cleanUrl.includes('.flv')) type = 'flv';
-
+                    let type = cleanUrl.includes('.ts') ? 'mpegts' : 'flv';
                     const mpegtsPlayer = mpegts.createPlayer({
                         type: type,
                         isLive: true,
@@ -84,14 +168,61 @@
                     mpegtsPlayer.attachMediaElement(video);
                     mpegtsPlayer.load();
                 } else {
-                    // Repli vidéo standard si mpegts n'est pas supporté par le navigateur
                     video.src = videoUrl;
                 }
             } 
-            // 3. AUTRES FICHIERS STANDARDS (MP4, WebM)
             else {
                 video.src = videoUrl;
             }
+
+            // --- GESTION DU PLEIN ÉCRAN ---
+            fullscreenBtn.addEventListener('click', function() {
+                if (!document.fullscreenElement) {
+                    container.requestFullscreen().catch(err => {
+                        console.log(`Erreur plein écran: ${err.message}`);
+                    });
+                } else {
+                    document.exitFullscreen();
+                }
+            });
+
+            // Mettre à jour le texte du bouton selon l'état
+            document.addEventListener('fullscreenchange', function() {
+                if (document.fullscreenElement) {
+                    fullscreenBtn.textContent = "🔳 Quitter Plein Écran";
+                } else {
+                    fullscreenBtn.textContent = "🔲 Plein Écran";
+                }
+            });
+
+            // --- GESTION DU CAST (DLNA / CHROMECAST / AIRPLAY NAlF) ---
+            castBtn.addEventListener('click', function() {
+                // Déclenche le menu de diffusion natif du navigateur si disponible (Safari / Chrome / Edge)
+                if (video.remote && video.remote.showPicker) {
+                    video.remote.showPicker();
+                } else if (video.webkitShowPlaybackTargetPicker) {
+                    video.webkitShowPlaybackTargetPicker();
+                } else {
+                    // Si le navigateur n'intègre pas le bouton directement, utilise l'API de cast par défaut
+                    alert("Pour diffuser sur votre TV / DLNA :\n1. Utilisez Google Chrome ou Edge.\n2. Faites un clic droit sur la vidéo.\n3. Choisissez 'Caster...' ou 'Diffuser sur l'appareil'.");
+                }
+            });
+
+            // --- EFFET DE MASQUAGE DE LA BARRE SUPÉRIEURE ---
+            let idleTimer;
+            function resetIdleTimer() {
+                container.classList.remove('idle');
+                clearTimeout(idleTimer);
+                idleTimer = setTimeout(() => {
+                    if (!video.paused) {
+                        container.classList.add('idle');
+                    }
+                }, 3000); // Disparaît après 3 secondes d'inactivité
+            }
+            container.addEventListener('mousemove', resetIdleTimer);
+            container.addEventListener('click', resetIdleTimer);
+            video.addEventListener('play', resetIdleTimer);
+            video.addEventListener('pause', () => container.classList.remove('idle'));
         });
     </script>
 </body>
