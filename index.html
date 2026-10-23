@@ -3,9 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lecteur Autonome</title>
-    <!-- Chargement de la bibliothèque HLS.js pour une compatibilité maximale (flux .m3u8) -->
-    <script src="https://jsdelivr.net"></script>
+    <title>Lecteur Multi-Flux</title>
+    
+    <!-- Intégration des deux bibliothèques demandées -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.min.js"></script>
+
     <style>
         body, html {
             margin: 0;
@@ -38,12 +41,11 @@
 </head>
 <body>
 
-    <div id="error-message">Aucune URL vidéo valide n'a été fournie.</div>
+    <div id="error-message">Aucune URL vidéo valide n'a été fournie ou format non supporté.</div>
     <video id="video" controls autoplay playsinline></video>
 
     <script>
         document.addEventListener("DOMContentLoaded", function() {
-            // 1. Récupération des paramètres de l'URL (?url=...)
             const urlParams = new URLSearchParams(window.location.search);
             const videoUrl = urlParams.get('url');
             const video = document.getElementById('video');
@@ -54,19 +56,40 @@
                 return;
             }
 
-            // 2. Initialisation du lecteur selon le format de la vidéo
-            if (videoUrl.includes('.m3u8')) {
-                // Si c'est un flux HLS (Streaming en direct)
+            // Nettoyage de l'URL pour enlever les paramètres lors de la détection de l'extension
+            const cleanUrl = videoUrl.split('?')[0].toLowerCase();
+
+            // 1. CAS DES FLUX HLS (.m3u8)
+            if (cleanUrl.includes('.m3u8')) {
                 if (Hls.isSupported()) {
                     const hls = new Hls();
                     hls.loadSource(videoUrl);
                     hls.attachMedia(video);
                 } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                    // Pour Safari (iOS/macOS) qui gère le HLS nativement
                     video.src = videoUrl;
                 }
-            } else {
-                // Pour les fichiers vidéo standards (MP4, WebM, OGG)
+            } 
+            // 2. CAS DES FLUX MPEG-TS (.ts) OU FLV (.flv)
+            else if (cleanUrl.includes('.ts') || cleanUrl.includes('.flv') || mpegts.getFeatureList().msePlayback) {
+                if (mpegts.isSupported()) {
+                    let type = 'mse'; // par défaut, détection automatique intelligente
+                    if (cleanUrl.includes('.ts')) type = 'mpegts';
+                    if (cleanUrl.includes('.flv')) type = 'flv';
+
+                    const mpegtsPlayer = mpegts.createPlayer({
+                        type: type,
+                        isLive: true,
+                        url: videoUrl
+                    });
+                    mpegtsPlayer.attachMediaElement(video);
+                    mpegtsPlayer.load();
+                } else {
+                    // Repli vidéo standard si mpegts n'est pas supporté par le navigateur
+                    video.src = videoUrl;
+                }
+            } 
+            // 3. AUTRES FICHIERS STANDARDS (MP4, WebM)
+            else {
                 video.src = videoUrl;
             }
         });
