@@ -3,12 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rouista Multi-Flux Player</title>
+    <title>Rouista Universel Player</title>
     
-    <!-- Bibliothèques de lecture -->
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.min.js"></script>
- 
+    <!-- Styles et Script du lecteur moderne Video.js -->
+    <link href="https://jsdelivr.net" rel="stylesheet">
+    <script src="https://jsdelivr.net"></script>
+    
+    <!-- Bibliothèque pour le format .ts et .flv -->
+    <script src="https://jsdelivr.net"></script>
 
     <style>
         body, html {
@@ -21,87 +23,28 @@
             justify-content: center;
             align-items: center;
             overflow: hidden;
-            font-family: 'Segoe UI', Arial, sans-serif;
-            user-select: none;
+            font-family: Arial, sans-serif;
         }
         
-        /* Conteneur principal */
         .player-container {
+            width: 100%;
+            height: 100%;
             position: relative;
-            width: 100%;
-            height: 100%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
         }
 
-        video {
-            width: 100%;
-            height: 100%;
-            max-width: 100%;
-            max-height: 100%;
-            object-fit: contain;
+        /* Style moderne personnalisé pour Video.js */
+        .video-js {
+            width: 100% !important;
+            height: 100% !important;
         }
 
-        /* Barre supérieure du lecteur */
-        .top-bar {
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            padding: 20px 25px;
-            background: linear-gradient(to bottom, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0) 100%);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            z-index: 10;
-            opacity: 1;
-            transition: opacity 0.4s ease;
-        }
-
-        /* Masquage automatique de la barre */
-        .player-container.idle .top-bar {
-            opacity: 0;
-            pointer-events: none;
-        }
-
-        .user-name {
-            color: #ffffff;
-            font-size: 20px;
-            font-weight: bold;
-            letter-spacing: 0.5px;
-            text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.9);
-            background: rgba(0, 0, 0, 0.4);
-            padding: 6px 14px;
-            border-radius: 6px;
-            border-left: 4px solid #0078d4;
-        }
-
-        .controls-right {
-            display: flex;
-            gap: 12px;
-        }
-
-        .btn-control {
-            background: rgba(255, 255, 255, 0.15);
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            color: white;
-            padding: 10px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: bold;
-            transition: background 0.2s, transform 0.1s;
-            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
-        }
-
-        .btn-control:hover {
-            background: rgba(255, 255, 255, 0.3);
-            transform: scale(1.03);
-        }
-
-        .btn-control:active {
-            transform: scale(0.97);
+        .vjs-theme-modern .vjs-big-play-button {
+            border-radius: 50%;
+            width: 2em;
+            height: 2em;
+            line-height: 2em;
+            margin-top: -1em;
+            margin-left: -1em;
         }
 
         #error-message {
@@ -111,122 +54,83 @@
             border-radius: 5px;
             display: none;
             position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
             z-index: 20;
         }
     </style>
 </head>
 <body>
 
-    <div class="player-container" id="playerContainer">
-        
-        <!-- Barre supérieure avec votre nom de marque -->
-        <div class="top-bar">
-            <div class="user-name">ROUISTA PLAYER</div>
-            <div class="controls-right">
-                <!-- Bouton Cast (DLNA / Chromecast / AirPlay) -->
-                <button class="btn-control" id="castBtn" title="Diffuser sur votre TV">📺 Cast / DLNA</button>
-                <!-- Bouton Plein Écran -->
-                <button class="btn-control" id="fullscreenBtn" title="Plein écran">🔲 Plein Écran</button>
-            </div>
-        </div>
-
+    <div class="player-container">
         <div id="error-message">Aucune URL vidéo valide n'a été fournie ou format non supporté.</div>
         
-        <!-- Attributs réseaux de diffusion -->
-        <video id="video" controls autoplay playsinline x-webkit-airplay="allow" webkit-playsinline></video>
-    
+        <!-- La balise vidéo standard configurée pour Video.js -->
+        <video id="rouista-player" class="video-js vjs-default-skin vjs-big-play-centered" controls autoplay playsinline></video>
     </div>
 
     <script>
         document.addEventListener("DOMContentLoaded", function() {
             const urlParams = new URLSearchParams(window.location.search);
             const videoUrl = urlParams.get('url');
-            const video = document.getElementById('video');
             const errorDiv = document.getElementById('error-message');
-            const container = document.getElementById('playerContainer');
-            const fullscreenBtn = document.getElementById('fullscreenBtn');
-            const castBtn = document.getElementById('castBtn');
+            const videoElement = document.getElementById('rouista-player');
 
             if (!videoUrl) {
                 errorDiv.style.display = 'block';
                 return;
             }
 
-            // --- LECTURE ET RECONNAISSANCE INTELLIGENTE DU FLUX VlDÉO ---
             const cleanUrl = videoUrl.toLowerCase();
 
-            if (cleanUrl.includes('.m3u8')) {
-                if (Hls.isSupported()) {
-                    const hls = new Hls();
-                    hls.loadSource(videoUrl);
-                    hls.attachMedia(video);
-                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                    video.src = videoUrl;
-                }
-            } 
-            else if (cleanUrl.includes('.ts') || cleanUrl.includes('.flv')) {
+            // 1. Détection des formats TS et FLV (nécessitent mpegts.js)
+            if (cleanUrl.includes('.ts') || cleanUrl.includes('.flv')) {
                 if (mpegts.isSupported()) {
                     let type = cleanUrl.includes('.ts') ? 'mpegts' : 'flv';
+                    
                     const mpegtsPlayer = mpegts.createPlayer({
                         type: type,
                         isLive: true,
                         url: videoUrl
                     });
-                    mpegtsPlayer.attachMediaElement(video);
+                    
+                    mpegtsPlayer.attachMediaElement(videoElement);
                     mpegtsPlayer.load();
-                } else {
-                    video.src = videoUrl;
-                }
-            } 
-            else {
-                video.src = videoUrl;
-            }
-
-            // --- GESTION DU PLEIN ÉCRAN ---
-            fullscreenBtn.addEventListener('click', function() {
-                if (!document.fullscreenElement) {
-                    container.requestFullscreen().catch(err => {
-                        console.log(`Erreur plein écran: ${err.message}`);
+                    
+                    // Initialisation cosmétique de Video.js par-dessus pour garder l'interface moderne
+                    videojs(videoElement, {
+                        controls: true,
+                        autoplay: true,
+                        fluid: true
                     });
                 } else {
-                    document.exitFullscreen();
+                    videoElement.src = videoUrl;
+                    videojs(videoElement);
                 }
-            });
-
-            document.addEventListener('fullscreenchange', function() {
-                if (document.fullscreenElement) {
-                    fullscreenBtn.textContent = "🔳 Quitter Plein Écran";
-                } else {
-                    fullscreenBtn.textContent = "🔲 Plein Écran";
-                }
-            });
-
-            // --- GESTION DU MENUE DE DIFFUSION TV ---
-            castBtn.addEventListener('click', function() {
-                if (video.remote && video.remote.showPicker) {
-                    video.remote.showPicker();
-                } else if (video.webkitShowPlaybackTargetPicker) {
-                    video.webkitShowPlaybackTargetPicker();
-                } else {
-                    alert("Pour diffuser en DLNA / Chromecast :\n1. Ouvrez ce lien sur Google Chrome ou Microsoft Edge.\n2. Faites un clic droit sur la vidéo.\n3. Cliquez sur 'Caster...' ou 'Diffuser sur l'appareil'.");
-                }
-            });
-
-            // --- EFFET DE MASQUAGE LOGIQUE DE L'INTERFACE ---
-            let idleTimer;
-            function resetIdleTimer() {
-                container.classList.remove('idle');
-                clearTimeout(idleTimer);
-                idleTimer = setTimeout(() => {
-                    if (!video.paused) {
-                        container.classList.add('idle');
-                    }
-                }, 3000); // S'efface après 3 secondes sans bouger
+            } 
+            // 2. Détection du format HLS / M3U8 (géré nativement par Video.js)
+            else if (cleanUrl.includes('.m3u8')) {
+                videojs(videoElement, {
+                    controls: true,
+                    autoplay: true,
+                    sources: [{
+                        src: videoUrl,
+                        type: 'application/x-mpegURL'
+                    }]
+                });
+            } 
+            // 3. Autres formats standards (MP4, WebM, etc.)
+            else {
+                videojs(videoElement, {
+                    controls: true,
+                    autoplay: true,
+                    sources: [{
+                        src: videoUrl,
+                        type: 'video/mp4'
+                    }]
+                });
             }
-            container.addEventListener('mousemove', resetIdleTimer);
-            container.addEventListener('click', resetIdleTimer);
-            video.addEventListener('play', resetIdleTimer);
-            video.addEventListener('pause', () => container.classList.remove('idle'));
         });
     </script>
 </body>
