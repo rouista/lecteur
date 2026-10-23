@@ -1,138 +1,394 @@
+
 <!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rouista Universel Player</title>
-    
-    <!-- Styles et Script du lecteur moderne Video.js -->
-    <link href="https://cdn.jsdelivr.net/npm/hls.js@latest" rel="stylesheet">
-   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.min.js"></script>
-    
-    <!-- Bibliothèque pour le format .ts et .flv -->
+    <title>Lecteur Multi-Flux</title>
+
+    <!-- Bibliothèques d'origine conservées -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.min.js"></script>
 
     <style>
-        body, html {
+        html, body {
             margin: 0;
             padding: 0;
             width: 100%;
             height: 100%;
-            background-color: #000;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            background: #000;
             overflow: hidden;
             font-family: Arial, sans-serif;
         }
-        
-        .player-container {
+
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        video {
             width: 100%;
             height: 100%;
-            position: relative;
-        }
-
-        /* Style moderne personnalisé pour Video.js */
-        .video-js {
-            width: 100% !important;
-            height: 100% !important;
-        }
-
-        .vjs-theme-modern .vjs-big-play-button {
-            border-radius: 50%;
-            width: 2em;
-            height: 2em;
-            line-height: 2em;
-            margin-top: -1em;
-            margin-left: -1em;
+            max-width: 100%;
+            max-height: 100%;
+            background: #000;
+            object-fit: contain;
         }
 
         #error-message {
-            color: #fff;
-            background: rgba(255, 0, 0, 0.8);
-            padding: 15px 25px;
-            border-radius: 5px;
             display: none;
             position: absolute;
-            top: 50%;
+            z-index: 10;
             left: 50%;
+            top: 50%;
             transform: translate(-50%, -50%);
-            z-index: 20;
+            width: min(85%, 600px);
+            box-sizing: border-box;
+            padding: 18px;
+            border: 1px solid #ff5555;
+            border-radius: 8px;
+            color: #fff;
+            background: rgba(35, 0, 0, .95);
+            overflow-wrap: anywhere;
+            line-height: 1.5;
+        }
+
+        #error-message strong {
+            display: block;
+            margin-bottom: 8px;
+            color: #ff7777;
+        }
+
+        #status {
+            position: absolute;
+            left: 10px;
+            bottom: 10px;
+            z-index: 5;
+            color: #ddd;
+            background: rgba(0, 0, 0, .65);
+            padding: 6px 9px;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none;
+        }
+
+        #retry {
+            margin-top: 12px;
+            padding: 8px 14px;
+            color: #fff;
+            background: #1769aa;
+            border: 0;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        #retry:focus-visible {
+            outline: 2px solid white;
+            outline-offset: 3px;
         }
     </style>
 </head>
 <body>
 
-    <div class="player-container">
-        <div id="error-message">Aucune URL vidéo valide n'a été fournie ou format non supporté.</div>
-        
-        <!-- La balise vidéo standard configurée pour Video.js -->
-        <video id="rouista-player" class="video-js vjs-default-skin vjs-big-play-centered" controls autoplay playsinline></video>
+    <div id="error-message" role="alert" aria-live="polite">
+        <strong>Erreur de lecture</strong>
+        <span id="error-detail"></span>
+        <br>
+        <button id="retry" type="button">Réessayer</button>
     </div>
 
+    <div id="status">Initialisation du lecteur…</div>
+
+    <video id="video" controls autoplay playsinline
+           preload="auto"></video>
+
     <script>
-        document.addEventListener("DOMContentLoaded", function() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const videoUrl = urlParams.get('url');
-            const errorDiv = document.getElementById('error-message');
-            const videoElement = document.getElementById('rouista-player');
+    document.addEventListener("DOMContentLoaded", function () {
+        "use strict";
+
+        const params = new URLSearchParams(window.location.search);
+        const videoUrl = (params.get("url") || "").trim();
+
+        const video = document.getElementById("video");
+        const errorDiv = document.getElementById("error-message");
+        const errorDetail = document.getElementById("error-detail");
+        const status = document.getElementById("status");
+        const retryButton = document.getElementById("retry");
+
+        let hlsPlayer = null;
+        let tsPlayer = null;
+        let attemptId = 0;
+        let recoveryAttempted = false;
+
+        function setStatus(message) {
+            status.textContent = message;
+        }
+
+        function showError(message) {
+            errorDetail.textContent = message;
+            errorDiv.style.display = "block";
+            setStatus("Échec de lecture");
+        }
+
+        function clearError() {
+            errorDiv.style.display = "none";
+            errorDetail.textContent = "";
+        }
+
+        function destroyPlayers() {
+            if (hlsPlayer) {
+                hlsPlayer.destroy();
+                hlsPlayer = null;
+            }
+
+            if (tsPlayer) {
+                tsPlayer.destroy();
+                tsPlayer = null;
+            }
+
+            video.pause();
+            video.removeAttribute("src");
+            video.load();
+        }
+
+        function startPlayback() {
+            const currentAttempt = ++attemptId;
+            recoveryAttempted = false;
+            clearError();
+            destroyPlayers();
 
             if (!videoUrl) {
-                errorDiv.style.display = 'block';
+                showError(
+                    "Aucune URL fournie. Utilisez ?url=ADRESSE_DU_FLUX"
+                );
                 return;
             }
 
-            const cleanUrl = videoUrl.toLowerCase();
+            let parsedUrl;
 
-            // 1. Détection des formats TS et FLV (nécessitent mpegts.js)
-            if (cleanUrl.includes('.ts') || cleanUrl.includes('.flv')) {
-                if (mpegts.isSupported()) {
-                    let type = cleanUrl.includes('.ts') ? 'mpegts' : 'flv';
-                    
-                    const mpegtsPlayer = mpegts.createPlayer({
-                        type: type,
-                        isLive: true,
-                        url: videoUrl
-                    });
-                    
-                    mpegtsPlayer.attachMediaElement(videoElement);
-                    mpegtsPlayer.load();
-                    
-                    // Initialisation cosmétique de Video.js par-dessus pour garder l'interface moderne
-                    videojs(videoElement, {
-                        controls: true,
-                        autoplay: true,
-                        fluid: true
-                    });
-                } else {
-                    videoElement.src = videoUrl;
-                    videojs(videoElement);
-                }
-            } 
-            // 2. Détection du format HLS / M3U8 (géré nativement par Video.js)
-            else if (cleanUrl.includes('.m3u8')) {
-                videojs(videoElement, {
-                    controls: true,
-                    autoplay: true,
-                    sources: [{
-                        src: videoUrl,
-                        type: 'application/x-mpegURL'
-                    }]
+            try {
+                parsedUrl = new URL(videoUrl);
+            } catch (error) {
+                showError("L'adresse du flux n'est pas une URL valide.");
+                return;
+            }
+
+            if (!["http:", "https:", "blob:"].includes(parsedUrl.protocol)) {
+                showError("Protocole non pris en charge : " + parsedUrl.protocol);
+                return;
+            }
+
+            if (parsedUrl.protocol === "blob:") {
+                playNative(videoUrl, currentAttempt);
+                return;
+            }
+
+            // Détection basée sur le chemin, pas sur les paramètres URL.
+            const path = parsedUrl.pathname.toLowerCase();
+
+            const isHls = /\.m3u8$/.test(path);
+            const isTs = /\.(ts|m2ts)$/.test(path);
+            const isFlv = /\.flv$/.test(path);
+            const isMp4 = /\.(mp4|m4v|m4a)$/.test(path);
+            const isWebm = /\.webm$/.test(path);
+
+            if (isHls) {
+                playHls(videoUrl, currentAttempt);
+            } else if (isTs || isFlv) {
+                playTransportStream(
+                    videoUrl,
+                    isFlv ? "flv" : "mpegts",
+                    currentAttempt
+                );
+            } else if (isMp4 || isWebm) {
+                playNative(videoUrl, currentAttempt);
+            } else {
+                // Les URL sans extension connue peuvent être des flux
+                // IPTV sans extension ou des URL signées.
+                playUnknown(videoUrl, currentAttempt);
+            }
+        }
+
+        function playHls(url, id) {
+            setStatus("Chargement du flux HLS…");
+
+            if (window.Hls && Hls.isSupported()) {
+                hlsPlayer = new Hls({
+                    enableWorker: true,
+                    lowLatencyMode: true
                 });
-            } 
-            // 3. Autres formats standards (MP4, WebM, etc.)
-            else {
-                videojs(videoElement, {
-                    controls: true,
-                    autoplay: true,
-                    sources: [{
-                        src: videoUrl,
-                        type: 'video/mp4'
-                    }]
+
+                hlsPlayer.on(Hls.Events.MANIFEST_PARSED, function () {
+                    if (id !== attemptId) return;
+                    setStatus("HLS prêt — lecture en cours");
+                    requestPlay(id);
+                });
+
+                hlsPlayer.on(Hls.Events.ERROR, function (event, data) {
+                    if (id !== attemptId) return;
+
+                    if (!data.fatal) {
+                        console.warn("Avertissement HLS :", data.details);
+                        return;
+                    }
+
+                    console.error("Erreur HLS :", data);
+
+                    if (data.type === Hls.ErrorTypes.MEDIA_ERROR &&
+                        !recoveryAttempted) {
+                        recoveryAttempted = true;
+                        setStatus("Récupération de l'erreur média…");
+                        hlsPlayer.recoverMediaError();
+                        return;
+                    }
+
+                    if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                        showError(
+                            "Erreur réseau HLS : " + data.details +
+                            ". Vérifiez l'URL, le serveur et les accès réseau."
+                        );
+                    } else {
+                        showError(
+                            "Erreur HLS : " + data.details +
+                            ". Le flux ou son codec peut être incompatible."
+                        );
+                    }
+                });
+
+                hlsPlayer.loadSource(url);
+                hlsPlayer.attachMedia(video);
+
+            } else if (
+                video.canPlayType("application/vnd.apple.mpegurl")
+            ) {
+                playNative(url, id);
+            } else {
+                showError(
+                    "HLS non pris en charge par ce navigateur."
+                );
+            }
+        }
+
+        function playTransportStream(url, type, id) {
+            setStatus("Chargement du flux " + type.toUpperCase() + "…");
+
+            if (window.mpegts && mpegts.isSupported()) {
+                tsPlayer = mpegts.createPlayer({
+                    type: type,
+                    isLive: true,
+                    url: url
+                }, {
+                    enableWorker: true,
+                    enableStashBuffer: false,
+                    liveBufferLatencyChasing: true
+                });
+
+                tsPlayer.on(mpegts.Events.ERROR, function (
+                    errorType, errorDetail, errorInfo
+                ) {
+                    if (id !== attemptId) return;
+
+                    console.error(
+                        "Erreur MPEG-TS/FLV :",
+                        errorType, errorDetail, errorInfo
+                    );
+
+                    showError(
+                        "Erreur " + type.toUpperCase() + " : " +
+                        String(errorType) + " / " +
+                        String(errorDetail) +
+                        ". Vérifiez le flux, le réseau et la compatibilité du codec."
+                    );
+                });
+
+                tsPlayer.attachMediaElement(video);
+                tsPlayer.load();
+
+                setStatus(type.toUpperCase() + " chargé — démarrage…");
+                requestPlay(id);
+
+            } else {
+                showError(
+                    "MPEG-TS/FLV nécessite Media Source Extensions " +
+                    "et un navigateur compatible. La lecture directe " +
+                    "du fichier peut ne pas fonctionner."
+                );
+            }
+        }
+
+        function playNative(url, id) {
+            setStatus("Ouverture du flux vidéo…");
+            video.src = url;
+            video.load();
+            requestPlay(id);
+        }
+
+        function playUnknown(url, id) {
+            // Une URL IPTV peut ne pas exposer son extension.
+            // On tente d'abord la lecture vidéo native.
+            setStatus("Format inconnu — tentative de lecture directe…");
+            playNative(url, id);
+        }
+
+        function requestPlay(id) {
+            if (id !== attemptId) return;
+
+            const result = video.play();
+
+            if (result && typeof result.catch === "function") {
+                result.catch(function (error) {
+                    if (id !== attemptId) return;
+
+                    if (error.name === "NotAllowedError") {
+                        setStatus(
+                            "Lecture prête — cliquez sur ▶ pour démarrer"
+                        );
+                    } else {
+                        console.warn("Démarrage vidéo :", error);
+                    }
                 });
             }
+        }
+
+        video.addEventListener("playing", function () {
+            clearError();
+            setStatus("Lecture en cours");
         });
+
+        video.addEventListener("waiting", function () {
+            setStatus("Mise en mémoire tampon…");
+        });
+
+        video.addEventListener("stalled", function () {
+            setStatus("Flux interrompu temporairement — attente réseau…");
+        });
+
+        video.addEventListener("error", function () {
+            const mediaError = video.error;
+            if (!mediaError) return;
+
+            const messages = {
+                1: "Lecture interrompue.",
+                2: "Erreur réseau pendant le chargement du flux.",
+                3: "Erreur de décodage : codec ou données incompatibles.",
+                4: "Format ou source non pris en charge."
+            };
+
+            const message =
+                messages[mediaError.code] ||
+                "Erreur vidéo inconnue.";
+
+            showError(message + " (code " + mediaError.code + ")");
+        });
+
+        retryButton.addEventListener("click", startPlayback);
+
+        // Évite les tentatives de récupération répétées.
+        window.addEventListener("beforeunload", destroyPlayers);
+
+        startPlayback();
+    });
     </script>
 </body>
 </html>
