@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lecteur Autonome</title>
+    <!-- Chargement de la bibliothèque HLS.js pour une compatibilité maximale (flux .m3u8) -->
+    <script src="https://jsdelivr.net"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        video {
+            width: 100%;
+            height: 100%;
+            max-width: 100%;
+            max-height: 100%;
+        }
+        #error-message {
+            color: #fff;
+            background: rgba(255, 0, 0, 0.8);
+            padding: 15px 25px;
+            border-radius: 5px;
+            display: none;
+            position: absolute;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="error-message">Aucune URL vidéo valide n'a été fournie.</div>
+    <video id="video" controls autoplay playsinline></video>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            // 1. Récupération des paramètres de l'URL (?url=...)
+            const urlParams = new URLSearchParams(window.location.search);
+            const videoUrl = urlParams.get('url');
+            const video = document.getElementById('video');
+            const errorDiv = document.getElementById('error-message');
+
+            if (!videoUrl) {
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            // 2. Initialisation du lecteur selon le format de la vidéo
+            if (videoUrl.includes('.m3u8')) {
+                // Si c'est un flux HLS (Streaming en direct)
+                if (Hls.isSupported()) {
+                    const hls = new Hls();
+                    hls.loadSource(videoUrl);
+                    hls.attachMedia(video);
+                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                    // Pour Safari (iOS/macOS) qui gère le HLS nativement
+                    video.src = videoUrl;
+                }
+            } else {
+                // Pour les fichiers vidéo standards (MP4, WebM, OGG)
+                video.src = videoUrl;
+            }
+        });
+    </script>
+</body>
+</html>
