@@ -3,9 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lecteur Multi-Flux Pro</title>
+    <title>Rouista Multi-Flux Player</title>
     
     <!-- Bibliothèques de lecture -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.min.js"></script>
     <script src="https://jsdelivr.net"></script>
     <script src="https://jsdelivr.net"></script>
 
@@ -20,7 +22,7 @@
             justify-content: center;
             align-items: center;
             overflow: hidden;
-            font-family: Arial, sans-serif;
+            font-family: 'Segoe UI', Arial, sans-serif;
             user-select: none;
         }
         
@@ -48,52 +50,59 @@
             top: 0;
             left: 0;
             right: 0;
-            padding: 15px 20px;
-            background: linear-gradient(to bottom, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0) 100%);
+            padding: 20px 25px;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0) 100%);
             display: flex;
             justify-content: space-between;
             align-items: center;
             z-index: 10;
-            transition: opacity 0.3s ease;
+            opacity: 1;
+            transition: opacity 0.4s ease;
         }
 
-        /* Masquage automatique de la barre quand la souris ne bouge pas */
+        /* Masquage automatique de la barre */
         .player-container.idle .top-bar {
             opacity: 0;
             pointer-events: none;
         }
 
         .user-name {
-            color: #fff;
-            font-size: 16px;
+            color: #ffffff;
+            font-size: 20px;
             font-weight: bold;
-            text-shadow: 1px 1px 4px rgba(0, 0, 0, 0.8);
+            letter-spacing: 0.5px;
+            text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.9);
+            background: rgba(0, 0, 0, 0.4);
+            padding: 6px 14px;
+            border-radius: 6px;
+            border-left: 4px solid #0078d4;
         }
 
         .controls-right {
             display: flex;
-            gap: 15px;
+            gap: 12px;
         }
 
         .btn-control {
             background: rgba(255, 255, 255, 0.15);
             border: 1px solid rgba(255, 255, 255, 0.3);
             color: white;
-            padding: 8px 14px;
-            border-radius: 4px;
+            padding: 10px 16px;
+            border-radius: 6px;
             cursor: pointer;
             font-size: 14px;
             font-weight: bold;
             transition: background 0.2s, transform 0.1s;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
         }
 
         .btn-control:hover {
             background: rgba(255, 255, 255, 0.3);
-            transform: scale(1.05);
+            transform: scale(1.03);
         }
 
         .btn-control:active {
-            transform: scale(0.95);
+            transform: scale(0.97);
         }
 
         #error-message {
@@ -111,13 +120,12 @@
 
     <div class="player-container" id="playerContainer">
         
-        <!-- Barre supérieure avec votre nom et boutons -->
+        <!-- Barre supérieure avec votre nom de marque -->
         <div class="top-bar">
-            <!-- Remplacer "Rouista" si nécessaire -->
-            <div class="user-name">Rouista Player</div>
+            <div class="user-name">ROUISTA PLAYER</div>
             <div class="controls-right">
                 <!-- Bouton Cast (DLNA / Chromecast / AirPlay) -->
-                <button class="btn-control" id="castBtn" title="Diffuser sur TV">📺 Cast / DLNA</button>
+                <button class="btn-control" id="castBtn" title="Diffuser sur votre TV">📺 Cast / DLNA</button>
                 <!-- Bouton Plein Écran -->
                 <button class="btn-control" id="fullscreenBtn" title="Plein écran">🔲 Plein Écran</button>
             </div>
@@ -125,7 +133,7 @@
 
         <div id="error-message">Aucune URL vidéo valide n'a été fournie ou format non supporté.</div>
         
-        <!-- Ajout des attributs de diffusion natifs -->
+        <!-- Attributs réseaux de diffusion -->
         <video id="video" controls autoplay playsinline x-webkit-airplay="allow" webkit-playsinline></video>
     
     </div>
@@ -145,8 +153,8 @@
                 return;
             }
 
-            // --- LECTURE DU FLUX VlDÉO ---
-            const cleanUrl = videoUrl.split('?')[0].toLowerCase();
+            // --- LECTURE ET RECONNAISSANCE INTELLIGENTE DU FLUX VlDÉO ---
+            const cleanUrl = videoUrl.toLowerCase();
 
             if (cleanUrl.includes('.m3u8')) {
                 if (Hls.isSupported()) {
@@ -186,7 +194,6 @@
                 }
             });
 
-            // Mettre à jour le texte du bouton selon l'état
             document.addEventListener('fullscreenchange', function() {
                 if (document.fullscreenElement) {
                     fullscreenBtn.textContent = "🔳 Quitter Plein Écran";
@@ -195,20 +202,18 @@
                 }
             });
 
-            // --- GESTION DU CAST (DLNA / CHROMECAST / AIRPLAY NAlF) ---
+            // --- GESTION DU MENUE DE DIFFUSION TV ---
             castBtn.addEventListener('click', function() {
-                // Déclenche le menu de diffusion natif du navigateur si disponible (Safari / Chrome / Edge)
                 if (video.remote && video.remote.showPicker) {
                     video.remote.showPicker();
                 } else if (video.webkitShowPlaybackTargetPicker) {
                     video.webkitShowPlaybackTargetPicker();
                 } else {
-                    // Si le navigateur n'intègre pas le bouton directement, utilise l'API de cast par défaut
-                    alert("Pour diffuser sur votre TV / DLNA :\n1. Utilisez Google Chrome ou Edge.\n2. Faites un clic droit sur la vidéo.\n3. Choisissez 'Caster...' ou 'Diffuser sur l'appareil'.");
+                    alert("Pour diffuser en DLNA / Chromecast :\n1. Ouvrez ce lien sur Google Chrome ou Microsoft Edge.\n2. Faites un clic droit sur la vidéo.\n3. Cliquez sur 'Caster...' ou 'Diffuser sur l'appareil'.");
                 }
             });
 
-            // --- EFFET DE MASQUAGE DE LA BARRE SUPÉRIEURE ---
+            // --- EFFET DE MASQUAGE LOGIQUE DE L'INTERFACE ---
             let idleTimer;
             function resetIdleTimer() {
                 container.classList.remove('idle');
@@ -217,7 +222,7 @@
                     if (!video.paused) {
                         container.classList.add('idle');
                     }
-                }, 3000); // Disparaît après 3 secondes d'inactivité
+                }, 3000); // S'efface après 3 secondes sans bouger
             }
             container.addEventListener('mousemove', resetIdleTimer);
             container.addEventListener('click', resetIdleTimer);
