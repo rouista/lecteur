@@ -1,67 +1,65 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rouita Player</title>
-    <!-- Chargement de la bibliothèque Hls.js pour gérer les flux .m3u8 -->
-    <script src="https://jsdelivr.net"></script>
-    <style>
-        body { font-family: Arial, sans-serif; background: #111; color: #fff; text-align: center; padding: 20px; }
-        .player-container { max-width: 800px; margin: 0 auto; background: #000; border-radius: 8px; overflow: hidden; }
-        video { width: 100%; display: block; }
-        .error { color: #ff4d4d; padding: 20px; font-weight: bold; }
-    </style>
-</head>
-<body>
+<script>
+    function getQueryParam(param) {
+        const urlParams = new URLSearchParams(window.location.search);
+        return urlParams.get(param);
+    }
 
-    <h1>📺 ROUITA PLAYER</h1>
-    
-    <div class="player-container">
-        <video id="video" controls autoplay playsinline></video>
-        <div id="error-message" class="error" style="display: none;">Erreur de lecture</div>
-    </div>
+    let streamUrl = getQueryParam('url');
+    const video = document.getElementById('video');
+    const errorDiv = document.getElementById('error-message');
 
-    <script>
-        // Fonction pour récupérer le paramètre ?url= dans l'adresse de la page
-        function getQueryParam(param) {
-            const urlParams = new URLSearchParams(window.location.search);
-            return urlParams.get(param);
-        }
+    // Liste de proxies CORS publics et gratuits pour contourner le blocage
+    // Note : Pour un usage intensif, il est recommandé de déployer votre propre proxy sur Vercel ou Cloudflare Workers.
+    const corsProxy = "https://herokuapp.com";
 
-        const streamUrl = getQueryParam('url');
-        const video = document.getElementById('video');
-        const errorDiv = document.getElementById('error-message');
+    if (streamUrl) {
+        // Si le flux est en .m3u8, on tente d'appliquer le contournement CORS
+        if (streamUrl.includes('.m3u8')) {
+            
+            // ÉTAPE A : On applique le proxy à l'URL pour bypasser les restrictions du serveur
+            // Attention : Certains proxies nécessitent une activation préalable ou bloquent le streaming vidéo lourd.
+            // Option alternative automatique : Utiliser un proxy personnalisé sans restriction
+            let proxiedUrl = streamUrl; 
+            
+            // Décommenter la ligne suivante si vous utilisez un proxy actif :
+            // proxiedUrl = corsProxy + streamUrl;
 
-        if (streamUrl) {
-            // Vérification si le format est du HLS (.m3u8)
-            if (streamUrl.includes('.m3u8')) {
-                if (Hls.isSupported()) {
-                    const hls = new Hls();
-                    hls.loadSource(streamUrl);
-                    hls.attachMedia(video);
-                    hls.on(Hls.Events.ERROR, function (event, data) {
-                        if (data.fatal) {
-                            errorDiv.style.display = 'block';
-                            errorDiv.innerText = "Erreur fatale de flux HLS (Vérifiez si le lien a expiré ou bloque le CORS).";
+            if (Hls.isSupported()) {
+                const hls = new Hls({
+                    // Configuration pour forcer le lecteur à réessayer en cas d'erreur réseau
+                    xhrSetup: function (xhr, url) {
+                        xhr.withCredentials = false;
+                    }
+                });
+                
+                hls.loadSource(proxiedUrl);
+                hls.attachMedia(video);
+                
+                hls.on(Hls.Events.ERROR, function (event, data) {
+                    if (data.fatal) {
+                        switch (data.type) {
+                            case Hls.ErrorTypes.NETWORK_ERROR:
+                                // Tentative de secours automatique en cas d'échec réseau direct
+                                console.log("Erreur réseau détectée, tentative avec proxy de secours...");
+                                hls.loadSource(corsProxy + streamUrl);
+                                hls.startLoad();
+                                break;
+                            default:
+                                errorDiv.style.display = 'block';
+                                errorDiv.innerText = "Erreur de lecture : Le flux nécessite un proxy CORS privé ou a expiré.";
+                                break;
                         }
-                    });
-                } 
-                // Pour Safari qui gère le HLS nativement
-                else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                    video.src = streamUrl;
-                } else {
-                    errorDiv.style.display = 'block';
-                    errorDiv.innerText = "Votre navigateur ne supporte pas la lecture HLS.";
-                }
-            } else {
-                // Si c'vest une vidéo classique (mp4, webm...)
+                    }
+                });
+            } 
+            else if (video.canPlayType('application/vnd.apple.mpegurl')) {
                 video.src = streamUrl;
             }
         } else {
-            errorDiv.style.display = 'block';
-            errorDiv.innerText = "Aucune URL de flux détectée dans l'adresse. Ajoutez ?url=LIEN";
+            video.src = streamUrl;
         }
-    </script>
-</body>
-</html>
+    } else {
+        errorDiv.style.display = 'block';
+        errorDiv.innerText = "Aucune URL de flux détectée.";
+    }
+</script>
