@@ -1,304 +1,67 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Rouita Player</title>
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.min.js"></script>
-  <style>
-    * { box-sizing: border-box; }
-    html, body { margin:0; padding:0; width:100%; height:100%; background:#000; overflow:hidden; font-family:Arial,sans-serif; }
-    body { display:flex; align-items:center; justify-content:center; }
-    video { width:100%; height:100%; object-fit:contain; background:#000; }
-    #brand { position:absolute; top:15px; left:18px; z-index:20; color:#20df82; background:rgba(0,0,0,.72); border:1px solid rgba(32,223,130,.45); border-radius:6px; padding:9px 13px; font-size:17px; font-weight:bold; letter-spacing:1px; pointer-events:none; }
-    #status { position:absolute; left:12px; bottom:12px; z-index:15; max-width:calc(100% - 24px); padding:7px 10px; color:#ddd; background:rgba(0,0,0,.75); border-radius:4px; font-size:12px; pointer-events:none; }
-    #error-message { display:none; position:absolute; z-index:30; top:50%; left:50%; transform:translate(-50%,-50%); width:min(88%,600px); padding:20px; color:white; background:rgba(35,0,0,.96); border:1px solid #f55; border-radius:8px; line-height:1.5; }
-    #error-message strong { display:block; color:#ff7777; margin-bottom:8px; }
-    #retry { margin-top:12px; padding:9px 15px; color:white; background:#087c49; border:0; border-radius:5px; cursor:pointer; }
-    #retry:disabled { opacity:.6; cursor:not-allowed; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rouita Player</title>
+    <!-- Chargement de la bibliothèque Hls.js pour gérer les flux .m3u8 -->
+    <script src="https://jsdelivr.net"></script>
+    <style>
+        body { font-family: Arial, sans-serif; background: #111; color: #fff; text-align: center; padding: 20px; }
+        .player-container { max-width: 800px; margin: 0 auto; background: #000; border-radius: 8px; overflow: hidden; }
+        video { width: 100%; display: block; }
+        .error { color: #ff4d4d; padding: 20px; font-weight: bold; }
+    </style>
 </head>
 <body>
-  <div id="brand">📺 ROUITA PLAYER</div>
-  <div id="status" role="status" aria-live="polite">Initialisation…</div>
-  <div id="error-message" role="alert">
-    <strong>Erreur de lecture</strong>
-    <span id="error-detail"></span><br>
-    <button id="retry" type="button">Réessayer</button>
-  </div>
-  <video id="video" controls autoplay playsinline webkit-playsinline preload="auto"></video>
 
-  <script>
-  (() => {
-    "use strict";
+    <h1>📺 ROUITA PLAYER</h1>
+    
+    <div class="player-container">
+        <video id="video" controls autoplay playsinline></video>
+        <div id="error-message" class="error" style="display: none;">Erreur de lecture</div>
+    </div>
 
-    const video = document.getElementById("video");
-    const status = document.getElementById("status");
-    const errorBox = document.getElementById("error-message");
-    const errorDetail = document.getElementById("error-detail");
-    const retryBtn = document.getElementById("retry");
+    <script>
+        // Fonction pour récupérer le paramètre ?url= dans l'adresse de la page
+        function getQueryParam(param) {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get(param);
+        }
 
-    // URLSearchParams décode déjà les séquences %xx. Accepte aussi une URL
-    // encodée une seconde fois, si elle a été fournie ainsi.
-    function getStreamUrl() {
-      const params = new URLSearchParams(window.location.search);
-      let url = (params.get("url") || "").trim();
-      try {
-        if (/%3a/i.test(url) && /^https?%3a/i.test(url)) url = decodeURIComponent(url);
-      } catch (_) {}
-      return url;
-    }
+        const streamUrl = getQueryParam('url');
+        const video = document.getElementById('video');
+        const errorDiv = document.getElementById('error-message');
 
-    const originalUrl = getStreamUrl();
-    let hlsPlayer = null;
-    let tsPlayer = null;
-    let attemptId = 0;
-    let loadTimeout = null;
-    let playing = false;
-    let recoveryAttempted = false;
-    let retryLocked = false;
-
-    function setStatus(message) { status.textContent = message; }
-    function clearLoadTimeout() {
-      if (loadTimeout !== null) {
-        clearTimeout(loadTimeout);
-        loadTimeout = null;
-      }
-    }
-    function showError(message) {
-      errorDetail.textContent = message;
-      errorBox.style.display = "block";
-      setStatus("Échec de lecture");
-      clearLoadTimeout();
-    }
-    function clearError() {
-      errorBox.style.display = "none";
-      errorDetail.textContent = "";
-    }
-    function armLoadTimeout(id, ms = 30000) {
-      clearLoadTimeout();
-      loadTimeout = setTimeout(() => {
-        if (id !== attemptId || playing) return;
-        showError("Aucune lecture après 30 secondes. Vérifiez l'adresse du flux, votre connexion et les autorisations CORS du serveur.");
-      }, ms);
-    }
-    function detectType(url) {
-      let pathname = "";
-      try { pathname = new URL(url).pathname.toLowerCase(); }
-      catch (_) { pathname = url.split("?")[0].toLowerCase(); }
-      if (/\.m3u8$/.test(pathname)) return "hls";
-      if (/\.(ts|m2ts)$/.test(pathname)) return "mpegts";
-      if (/\.flv$/.test(pathname)) return "flv";
-      if (/\.(mp4|m4v|mov)$/.test(pathname)) return "mp4";
-      if (/\.webm$/.test(pathname)) return "webm";
-      return "unknown";
-    }
-    function destroyPlayers() {
-      clearLoadTimeout();
-      if (hlsPlayer) {
-        try { hlsPlayer.destroy(); } catch (_) {}
-        hlsPlayer = null;
-      }
-      if (tsPlayer) {
-        try { tsPlayer.pause(); } catch (_) {}
-        try { tsPlayer.unload(); } catch (_) {}
-        try { tsPlayer.detachMediaElement(); } catch (_) {}
-        try { tsPlayer.destroy(); } catch (_) {}
-        tsPlayer = null;
-      }
-      try {
-        video.pause();
-        video.removeAttribute("src");
-        video.load();
-      } catch (_) {}
-      playing = false;
-    }
-    function requestPlay(id) {
-      if (id !== attemptId) return;
-      const result = video.play();
-      if (result && typeof result.catch === "function") {
-        result.catch(error => {
-          if (id !== attemptId) return;
-          if (error && error.name === "NotAllowedError") {
-            setStatus("Prêt — appuyez sur ▶ pour démarrer");
-          } else if (error && error.name !== "AbortError") {
-            setStatus("En attente du démarrage manuel");
-          }
-        });
-      }
-    }
-    function startPlayback() {
-      const id = ++attemptId;
-      recoveryAttempted = false;
-      playing = false;
-      clearError();
-      destroyPlayers();
-
-      if (!originalUrl) {
-        showError("URL absente. Ouvrez le lecteur avec ?url=https%3A%2F%2Fexemple.com%2Fflux.m3u8");
-        return;
-      }
-
-      let parsed;
-      try { parsed = new URL(originalUrl); }
-      catch (_) { showError("URL invalide. L'adresse doit être une URL complète."); return; }
-      if (!["http:", "https:"].includes(parsed.protocol)) {
-        showError("Seules les adresses HTTP et HTTPS sont prises en charge.");
-        return;
-      }
-
-      armLoadTimeout(id);
-      const type = detectType(originalUrl);
-      if (type === "hls") playHls(originalUrl, id);
-      else if (type === "mpegts" || type === "flv") playMpegTs(originalUrl, type, id);
-      else playNative(originalUrl, id);
-    }
-
-    function playHls(url, id) {
-      setStatus("Chargement du flux HLS…");
-
-      if (window.Hls && Hls.isSupported()) {
-        hlsPlayer = new Hls({
-          enableWorker: true,
-          lowLatencyMode: true,
-          maxBufferLength: 20,
-          maxMaxBufferLength: 45,
-          manifestLoadingTimeOut: 20000,
-          manifestLoadingMaxRetry: 2,
-          levelLoadingTimeOut: 20000,
-          fragLoadingTimeOut: 30000,
-          fragLoadingMaxRetry: 3
-        });
-
-        hlsPlayer.on(Hls.Events.MEDIA_ATTACHED, () => {
-          if (id === attemptId) setStatus("Connexion au flux HLS…");
-        });
-        hlsPlayer.on(Hls.Events.MANIFEST_PARSED, () => {
-          if (id !== attemptId) return;
-          setStatus("Flux HLS trouvé — démarrage…");
-          requestPlay(id);
-        });
-        hlsPlayer.on(Hls.Events.ERROR, (_event, data) => {
-          if (id !== attemptId || !data.fatal) return;
-          console.error("HLS fatal error:", data);
-          if (data.type === Hls.ErrorTypes.MEDIA_ERROR && !recoveryAttempted) {
-            recoveryAttempted = true;
-            setStatus("Tentative de récupération du flux…");
-            try { hlsPlayer.recoverMediaError(); }
-            catch (_) { showError("Le lecteur n'a pas pu récupérer l'erreur média."); }
-            return;
-          }
-          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-            showError("Erreur réseau HLS (" + data.details + "). Le flux peut être indisponible ou le serveur peut refuser les requêtes du navigateur (CORS).");
-          } else {
-            showError("Erreur HLS (" + data.details + "). Le flux ou son format n'est peut-être pas compatible.");
-          }
-        });
-
-        hlsPlayer.loadSource(url);
-        hlsPlayer.attachMedia(video);
-        return;
-      }
-
-      // Safari et certains appareils ont une lecture HLS native.
-      if (video.canPlayType("application/vnd.apple.mpegurl") ||
-          video.canPlayType("application/x-mpegURL")) {
-        playNative(url, id);
-        return;
-      }
-      showError("HLS n'est pas pris en charge par ce navigateur et HLS.js n'est pas disponible. Vérifiez votre connexion Internet.");
-    }
-
-    function playMpegTs(url, type, id) {
-      setStatus("Chargement " + type.toUpperCase() + "…");
-      if (!window.mpegts || !mpegts.isSupported()) {
-        showError("Ce navigateur ne prend pas en charge la lecture MSE nécessaire pour ce flux " + type + ".");
-        return;
-      }
-      try {
-        tsPlayer = mpegts.createPlayer({
-          type: type === "flv" ? "flv" : "mpegts",
-          isLive: true,
-          url: url
-        }, {
-          enableWorker: true,
-          enableStashBuffer: true,
-          stashInitialSize: 128
-        });
-        tsPlayer.on(mpegts.Events.ERROR, (errorType, errorDetailText, errorInfo) => {
-          if (id !== attemptId) return;
-          console.error("mpegts error:", errorType, errorDetailText, errorInfo);
-          showError("Erreur " + type.toUpperCase() + ": " + errorType + " / " + errorDetailText);
-        });
-        tsPlayer.on(mpegts.Events.MEDIA_INFO, () => {
-          if (id !== attemptId) return;
-          setStatus(type.toUpperCase() + " prêt — démarrage…");
-          requestPlay(id);
-        });
-        tsPlayer.attachMediaElement(video);
-        tsPlayer.load();
-        requestPlay(id);
-      } catch (error) {
-        showError("Impossible d'initialiser le lecteur " + type + ": " + (error.message || error));
-      }
-    }
-
-    function playNative(url, id) {
-      if (id !== attemptId) return;
-      setStatus("Ouverture du flux…");
-      video.src = url;
-      video.load();
-      requestPlay(id);
-    }
-
-    video.addEventListener("playing", () => {
-      playing = true;
-      clearLoadTimeout();
-      clearError();
-      setStatus("Lecture en cours");
-    });
-    video.addEventListener("waiting", () => {
-      if (!playing) setStatus("Mise en mémoire tampon…");
-    });
-    video.addEventListener("canplay", () => {
-      if (!playing) setStatus("Flux reçu — prêt à lire");
-    });
-    video.addEventListener("stalled", () => {
-      if (!playing) setStatus("Le flux tarde à répondre…");
-    });
-    video.addEventListener("error", () => {
-      // Les erreurs HLS.js / mpegts.js sont traitées par leurs propres événements.
-      if (hlsPlayer || tsPlayer) return;
-      const error = video.error;
-      if (!error) return;
-      const messages = {
-        1: "Lecture interrompue.",
-        2: "Erreur réseau pendant le chargement du flux.",
-        3: "Le navigateur n'a pas pu décoder la vidéo ou l'audio.",
-        4: "Format ou adresse non pris en charge. Vérifiez que le lien est un flux direct."
-      };
-      showError(messages[error.code] || ("Erreur vidéo native, code " + error.code + "."));
-    });
-
-    retryBtn.addEventListener("click", () => {
-      if (retryLocked) return;
-      retryLocked = true;
-      retryBtn.disabled = true;
-      startPlayback();
-      setTimeout(() => {
-        retryLocked = false;
-        retryBtn.disabled = false;
-      }, 2000);
-    });
-
-    window.addEventListener("pagehide", () => {
-      ++attemptId;
-      destroyPlayers();
-    });
-
-    startPlayback();
-  })();
-  </script>
+        if (streamUrl) {
+            // Vérification si le format est du HLS (.m3u8)
+            if (streamUrl.includes('.m3u8')) {
+                if (Hls.isSupported()) {
+                    const hls = new Hls();
+                    hls.loadSource(streamUrl);
+                    hls.attachMedia(video);
+                    hls.on(Hls.Events.ERROR, function (event, data) {
+                        if (data.fatal) {
+                            errorDiv.style.display = 'block';
+                            errorDiv.innerText = "Erreur fatale de flux HLS (Vérifiez si le lien a expiré ou bloque le CORS).";
+                        }
+                    });
+                } 
+                // Pour Safari qui gère le HLS nativement
+                else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                    video.src = streamUrl;
+                } else {
+                    errorDiv.style.display = 'block';
+                    errorDiv.innerText = "Votre navigateur ne supporte pas la lecture HLS.";
+                }
+            } else {
+                // Si c'vest une vidéo classique (mp4, webm...)
+                video.src = streamUrl;
+            }
+        } else {
+            errorDiv.style.display = 'block';
+            errorDiv.innerText = "Aucune URL de flux détectée dans l'adresse. Ajoutez ?url=LIEN";
+        }
+    </script>
 </body>
 </html>
