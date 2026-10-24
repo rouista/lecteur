@@ -1,492 +1,182 @@
+
 <!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Rouita Player</title>
-
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.min.js"></script>
-
     <style>
         * { box-sizing: border-box; }
-        html, body {
-            margin: 0; padding: 0; width: 100%; height: 100%;
-            background: #000; overflow: hidden;
-            font-family: Arial, sans-serif;
-        }
-        body { display: flex; align-items: center; justify-content: center; }
-        video { width: 100%; height: 100%; object-fit: contain; background: #000; }
-        #brand {
-            position: absolute; top: 15px; left: 18px; z-index: 20;
-            color: #20df82; background: rgba(0,0,0,.72);
-            border: 1px solid rgba(32,223,130,.45); border-radius: 6px;
-            padding: 9px 13px; font-size: 17px; font-weight: bold;
-            letter-spacing: 1px; pointer-events: none;
-            text-shadow: 0 0 8px rgba(32,223,130,.25);
-        }
-        #status {
-            position: absolute; left: 12px; bottom: 12px; z-index: 15;
-            max-width: calc(100% - 24px); padding: 7px 10px; color: #ddd;
-            background: rgba(0,0,0,.7); border-radius: 4px; font-size: 12px;
-            pointer-events: none;
-        }
-        #error-message {
-            display: none; position: absolute; z-index: 30; top: 50%; left: 50%;
-            transform: translate(-50%, -50%); width: min(88%, 600px);
-            padding: 20px; color: white; background: rgba(35,0,0,.96);
-            border: 1px solid #f55; border-radius: 8px;
-            overflow-wrap: anywhere; line-height: 1.5;
-        }
-        #error-message strong { display: block; color: #ff7777; margin-bottom: 8px; }
-        #retry {
-            margin-top: 12px; padding: 9px 15px; color: white;
-            background: #087c49; border: 0; border-radius: 5px; cursor: pointer;
-        }
-        #retry:disabled { opacity: .6; cursor: not-allowed; }
-        @media (max-width: 600px) {
-            #brand { top: 9px; left: 9px; font-size: 14px; padding: 7px 9px; }
-        }
+        html, body { margin:0; padding:0; width:100%; height:100%; background:#000; overflow:hidden; font-family:Arial,sans-serif; }
+        body { display:flex; align-items:center; justify-content:center; }
+        video { width:100%; height:100%; object-fit:contain; background:#000; }
+        #brand { position:absolute; top:15px; left:18px; z-index:20; color:#20df82; background:rgba(0,0,0,.72); border:1px solid rgba(32,223,130,.45); border-radius:6px; padding:9px 13px; font-size:17px; font-weight:bold; letter-spacing:1px; pointer-events:none; }
+        #status { position:absolute; left:12px; bottom:12px; z-index:15; padding:7px 10px; color:#ddd; background:rgba(0,0,0,.7); border-radius:4px; font-size:12px; pointer-events:none; }
+        #error-message { display:none; position:absolute; z-index:30; top:50%; left:50%; transform:translate(-50%,-50%); width:min(88%,600px); padding:20px; color:white; background:rgba(35,0,0,.96); border:1px solid #f55; border-radius:8px; line-height:1.5; }
+        #error-message strong { display:block; color:#ff7777; margin-bottom:8px; }
+        #retry { margin-top:12px; padding:9px 15px; color:white; background:#087c49; border:0; border-radius:5px; cursor:pointer; }
+        #retry:disabled { opacity:.6; cursor:not-allowed; }
     </style>
 </head>
-
 <body>
-
     <div id="brand">📺 ROUITA PLAYER</div>
     <div id="status">Initialisation…</div>
-    <div id="error-message" role="alert" aria-live="polite">
-        <strong>Erreur de lecture</strong>
-        <span id="error-detail"></span>
-        <br>
-        <button id="retry" type="button">Réessayer</button>
-    </div>
+    <div id="error-message"><strong>Erreur</strong><span id="error-detail"></span><br><button id="retry">Réessayer</button></div>
     <video id="video" controls autoplay playsinline preload="auto"></video>
-
     <script>
     document.addEventListener("DOMContentLoaded", function () {
         "use strict";
-
-        /* ------------------------------------------------------------------
-         * 1. Paramètres d'entrée
-         * ------------------------------------------------------------------ */
         const params = new URLSearchParams(location.search);
-        const rawUrl = (params.get("url") || "").trim();
-
-        let originalUrl = rawUrl;
-        try {
-            if (/^https?%3A/i.test(originalUrl)) {
-                originalUrl = decodeURIComponent(originalUrl);
-            }
-        } catch (_) {}
-
-        /* ------------------------------------------------------------------
-         * 2. Proxies publics (essayés dans l'ordre)
-         *    Aucun n'est fiable à 100%. On bascule automatiquement.
-         * ------------------------------------------------------------------ */
-        const PROXIES = [
-            // Proxy public 1 (corsproxy.io)
-            function (u) { return "https://corsproxy.io/?url=" + encodeURIComponent(u); },
-            // Proxy public 2 (allorigins.win)
-            function (u) { return "https://api.allorigins.win/raw?url=" + encodeURIComponent(u); },
-            // Proxy public 3 (cors.eu.org)
-            function (u) { return "https://cors.eu.org/" + u; },
-            // Proxy public 4 (thingproxy)
-            function (u) { return "https://thingproxy.freeboard.io/fetch/" + u; }
-        ];
-
-        let currentProxyIndex = 0;
-        let videoUrl = "";
-        let usingProxy = false;
-
-        /* ------------------------------------------------------------------
-         * 3. Références DOM
-         * ------------------------------------------------------------------ */
+        let originalUrl = (params.get("url") || "").trim();
+        try { if (/^https?%3A/i.test(originalUrl)) originalUrl = decodeURIComponent(originalUrl); } catch(_){}
+        
         const video = document.getElementById("video");
         const status = document.getElementById("status");
         const errorBox = document.getElementById("error-message");
         const errorDetail = document.getElementById("error-detail");
         const retryBtn = document.getElementById("retry");
-
-        /* ------------------------------------------------------------------
-         * 4. État du lecteur
-         * ------------------------------------------------------------------ */
-        let hlsPlayer = null;
-        let tsPlayer = null;
-        let attemptId = 0;
-        let recoveryAttempted = false;
-        let loadTimeout = null;
-        let playing = false;
-        let retryLocked = false;
-
-        /* ------------------------------------------------------------------
-         * 5. Utilitaires UI
-         * ------------------------------------------------------------------ */
-        function setStatus(message) { status.textContent = message; }
-
-        function showError(message) {
-            errorDetail.textContent = message;
-            errorBox.style.display = "block";
-            setStatus("Échec de lecture");
-            clearLoadTimeout();
-        }
-
-        function clearError() {
-            errorBox.style.display = "none";
-            errorDetail.textContent = "";
-        }
-
-        function clearLoadTimeout() {
-            if (loadTimeout) { clearTimeout(loadTimeout); loadTimeout = null; }
-        }
-
+        
+        let hlsPlayer = null, tsPlayer = null, attemptId = 0, recoveryAttempted = false;
+        let loadTimeout = null, playing = false, retryLocked = false;
+        
+        function setStatus(m) { status.textContent = m; }
+        function showError(m) { errorDetail.textContent = m; errorBox.style.display = "block"; setStatus("Échec"); clearLoadTimeout(); }
+        function clearError() { errorBox.style.display = "none"; errorDetail.textContent = ""; }
+        function clearLoadTimeout() { if (loadTimeout) { clearTimeout(loadTimeout); loadTimeout = null; } }
         function armLoadTimeout(id, ms) {
             clearLoadTimeout();
-            loadTimeout = setTimeout(function () {
+            loadTimeout = setTimeout(function() {
                 if (id !== attemptId || playing) return;
-                // Si le flux ne répond pas via ce proxy, on essaie le suivant
-                if (usingProxy) {
-                    tryNextProxy();
-                } else {
-                    showError("Délai de chargement dépassé. Le flux ne répond pas ou est inaccessible.");
-                }
-            }, ms || 20000);
+                showError("Délai dépassé. Le flux ne répond pas (CORS bloqué ou serveur inaccessible).");
+            }, ms || 25000);
         }
-
-        /* ------------------------------------------------------------------
-         * 6. Détection du type de flux
-         * ------------------------------------------------------------------ */
+        
         function detectType(url) {
-            let p = "";
-            try {
-                const u = new URL(url);
-                p = (u.pathname + u.search).toLowerCase();
-            } catch (_) { p = url.toLowerCase(); }
-            if (/\.m3u8(\b|$)/.test(p) || /type=m3u8/.test(p) || /format=m3u8/.test(p)) return "hls";
-            if (/\.(ts|m2ts|mts)(\b|$)/.test(p)) return "mpegts";
-            if (/\.flv(\b|$)/.test(p)) return "flv";
-            if (/\.(mp4|m4v|m4a|mov)(\b|$)/.test(p)) return "mp4";
-            if (/\.webm(\b|$)/.test(p)) return "webm";
-            if (/\.mp3(\b|$)/.test(p)) return "mp3";
+            const p = url.toLowerCase();
+            if (/\.m3u8/.test(p)) return "hls";
+            if (/\.(ts|m2ts)/.test(p)) return "mpegts";
+            if (/\.flv/.test(p)) return "flv";
+            if (/\.(mp4|m4v)/.test(p)) return "mp4";
+            if (/\.webm/.test(p)) return "webm";
             return "unknown";
         }
-
-        /* ------------------------------------------------------------------
-         * 7. Destruction des players
-         * ------------------------------------------------------------------ */
+        
         function destroyPlayers() {
             clearLoadTimeout();
-            if (hlsPlayer) { try { hlsPlayer.destroy(); } catch (_) {} hlsPlayer = null; }
-            if (tsPlayer) { try { tsPlayer.destroy(); } catch (_) {} tsPlayer = null; }
-            try { video.pause(); video.removeAttribute("src"); video.load(); } catch (_) {}
+            if (hlsPlayer) { try{hlsPlayer.destroy()}catch(_){} hlsPlayer = null; }
+            if (tsPlayer) { try{tsPlayer.destroy()}catch(_){} tsPlayer = null; }
+            try { video.pause(); video.removeAttribute("src"); video.load(); } catch(_){}
             playing = false;
         }
-
-        /* ------------------------------------------------------------------
-         * 8. Gestion des proxies
-         * ------------------------------------------------------------------ */
-        function tryNextProxy() {
-            if (currentProxyIndex >= PROXIES.length) {
-                showError(
-                    "Aucun proxy public n'a pu charger ce flux. " +
-                    "Le serveur source est probablement protégé contre les proxys publics. " +
-                    "La solution fiable est de déployer votre propre proxy (Cloudflare Worker)."
-                );
-                return;
-            }
-
-            const proxyFn = PROXIES[currentProxyIndex];
-            currentProxyIndex++;
-            videoUrl = proxyFn(originalUrl);
-            usingProxy = true;
-            setStatus("Tentative via proxy " + currentProxyIndex + "/" + PROXIES.length + "…");
-
-            // On relance la lecture avec la nouvelle URL
-            startPlayback(true);
-        }
-
-        /* ------------------------------------------------------------------
-         * 9. Lecture
-         * ------------------------------------------------------------------ */
+        
         function requestPlay(id) {
             if (id !== attemptId) return;
-            const p = video.play();
-            if (p && typeof p.catch === "function") {
-                p.catch(function (error) {
-                    if (id !== attemptId) return;
-                    if (error && error.name === "NotAllowedError") {
-                        setStatus("Cliquez sur ▶ pour démarrer la lecture");
-                    } else {
-                        console.warn("Lecture :", error);
-                    }
-                });
-            }
+            video.play().catch(function(e) {
+                if (id !== attemptId) return;
+                if (e.name === "NotAllowedError") setStatus("Cliquez sur ▶");
+            });
         }
-
-        function startPlayback(fromProxyRetry) {
+        
+        function startPlayback() {
             const id = ++attemptId;
-            recoveryAttempted = false;
-            playing = false;
-
-            clearError();
-            destroyPlayers();
-
-            // Premier lancement : on prépare l'URL
-            if (!fromProxyRetry) {
-                if (!originalUrl) {
-                    showError("URL absente. Ajoutez ?url=ADRESSE_DU_FLUX à l'adresse du lecteur.");
-                    return;
-                }
-                let parsed;
-                try { parsed = new URL(originalUrl); } catch (_) {
-                    showError("L'adresse du flux n'est pas une URL valide.");
-                    return;
-                }
-                if (!["http:", "https:"].includes(parsed.protocol)) {
-                    showError("Seules les URL HTTP et HTTPS sont acceptées.");
-                    return;
-                }
-                // Première tentative SANS proxy (au cas où le serveur autorise déjà CORS)
-                videoUrl = originalUrl;
-                usingProxy = false;
-                currentProxyIndex = 0;
-            }
-
-            armLoadTimeout(id, 20000);
-
-            const type = detectType(originalUrl); // on détecte sur l'URL d'origine
-
-            if (type === "hls") {
-                playHls(videoUrl, id);
-            } else if (type === "mpegts" || type === "flv") {
-                playMpegTs(videoUrl, type, id);
-            } else if (type === "mp4" || type === "webm" || type === "mp3") {
-                playNative(videoUrl, id);
-            } else {
-                if (window.Hls) playHls(videoUrl, id);
-                else playNative(videoUrl, id);
-            }
+            recoveryAttempted = false; playing = false;
+            clearError(); destroyPlayers();
+            
+            if (!originalUrl) { showError("URL absente. Ajoutez ?url=..."); return; }
+            try { new URL(originalUrl); } catch(_) { showError("URL invalide."); return; }
+            
+            armLoadTimeout(id, 25000);
+            const type = detectType(originalUrl);
+            
+            if (type === "hls") playHls(originalUrl, id);
+            else if (type === "mpegts" || type === "flv") playMpegTs(originalUrl, type, id);
+            else playNative(originalUrl, id);
         }
-
-        /* ------------------------------------------------------------------
-         * 10. HLS
-         * ------------------------------------------------------------------ */
+        
         function playHls(url, id) {
-            setStatus("Chargement HLS…" + (usingProxy ? " (proxy)" : ""));
-
-            if (!window.Hls) {
-                if (window.mpegts && mpegts.isSupported()) {
-                    setStatus("HLS.js non chargé, tentative MPEG-TS…");
-                    playMpegTs(url, "mpegts", id);
-                    return;
-                }
-                showError("La bibliothèque HLS.js n'a pas pu être chargée.");
-                return;
-            }
-
+            setStatus("Chargement HLS…");
+            if (!window.Hls) { showError("HLS.js non chargé. Vérifiez votre connexion."); return; }
             if (!Hls.isSupported()) {
-                if (video.canPlayType("application/vnd.apple.mpegurl")) {
-                    playNative(url, id);
-                } else {
-                    showError("Ce navigateur ne prend pas en charge Media Source Extensions.");
-                }
+                if (video.canPlayType("application/vnd.apple.mpegurl")) playNative(url, id);
+                else showError("HLS non supporté par ce navigateur.");
                 return;
             }
-
-            try {
-                hlsPlayer = new Hls({
-                    enableWorker: true,
-                    lowLatencyMode: true,
-                    maxBufferLength: 8,
-                    maxMaxBufferLength: 15,
-                    backBufferLength: 15,
-                    liveSyncDurationCount: 3,
-                    liveMaxLatencyDurationCount: 6,
-                    manifestLoadingTimeOut: 15000,
-                    manifestLoadingMaxRetry: 2,
-                    levelLoadingTimeOut: 15000,
-                    fragLoadingTimeOut: 25000,
-                    fragLoadingMaxRetry: 3
-                });
-            } catch (e) {
-                showError("Impossible d'initialiser HLS : " + e.message);
-                return;
-            }
-
-            hlsPlayer.on(Hls.Events.MANIFEST_PARSED, function () {
-                if (id !== attemptId) return;
-                setStatus("HLS prêt — démarrage…");
-                requestPlay(id);
+            
+            hlsPlayer = new Hls({
+                enableWorker: true, lowLatencyMode: true,
+                maxBufferLength: 10, maxMaxBufferLength: 30,
+                manifestLoadingTimeOut: 15000, manifestLoadingMaxRetry: 2,
+                fragLoadingTimeOut: 25000, fragLoadingMaxRetry: 3
             });
-
-            hlsPlayer.on(Hls.Events.ERROR, function (event, data) {
+            
+            hlsPlayer.on(Hls.Events.MANIFEST_PARSED, function() {
+                if (id !== attemptId) return;
+                setStatus("HLS prêt"); requestPlay(id);
+            });
+            
+            hlsPlayer.on(Hls.Events.ERROR, function(event, data) {
                 if (id !== attemptId || !data.fatal) return;
-                console.error("Erreur HLS :", data);
-
+                console.error("HLS error:", data);
                 if (data.type === Hls.ErrorTypes.MEDIA_ERROR && !recoveryAttempted) {
-                    recoveryAttempted = true;
-                    setStatus("Récupération du flux…");
-                    try { hlsPlayer.recoverMediaError(); } catch (_) {}
+                    recoveryAttempted = true; setStatus("Récupération…");
+                    try { hlsPlayer.recoverMediaError(); } catch(_){}
                     return;
                 }
-
-                // Erreur réseau / CORS -> on tente le proxy suivant
-                if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-                    if (!usingProxy || currentProxyIndex < PROXIES.length) {
-                        setStatus("Erreur réseau, bascule vers un autre proxy…");
-                        tryNextProxy();
-                    } else {
-                        showError(
-                            "Erreur réseau HLS : " + data.details +
-                            ". Tous les proxies ont échoué. Le serveur source bloque probablement les proxys publics."
-                        );
-                    }
+                if (data.details === "manifestLoadError") {
+                    showError("Impossible de charger le manifeste. Le serveur refuse les requêtes cross-origin (CORS). Un proxy est nécessaire pour ce flux.");
+                } else if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                    showError("Erreur réseau: " + data.details);
                 } else {
-                    showError("Erreur HLS : " + data.details + ". Codec ou flux incompatible.");
+                    showError("Erreur HLS: " + data.details);
                 }
             });
-
-            try {
-                hlsPlayer.loadSource(url);
-                hlsPlayer.attachMedia(video);
-            } catch (e) {
-                showError("Impossible de charger le flux HLS : " + e.message);
-            }
+            
+            hlsPlayer.loadSource(url);
+            hlsPlayer.attachMedia(video);
         }
-
-        /* ------------------------------------------------------------------
-         * 11. MPEG-TS / FLV
-         * ------------------------------------------------------------------ */
+        
         function playMpegTs(url, type, id) {
-            setStatus("Chargement " + type.toUpperCase() + "…" + (usingProxy ? " (proxy)" : ""));
-
-            if (!window.mpegts || !mpegts.isSupported()) {
-                showError(type.toUpperCase() + " nécessite MSE.");
-                return;
-            }
-
-            try {
-                tsPlayer = mpegts.createPlayer({
-                    type: type === "flv" ? "flv" : "mpegts",
-                    isLive: true,
-                    url: url
-                }, {
-                    enableWorker: true,
-                    enableStashBuffer: false,
-                    liveBufferLatencyChasing: true,
-                    lazyLoad: false,
-                    lazyLoadMaxDuration: 0,
-                    autoCleanupSourceBuffer: true
-                });
-            } catch (e) {
-                showError("Impossible d'initialiser " + type.toUpperCase() + " : " + e.message);
-                return;
-            }
-
-            tsPlayer.on(mpegts.Events.ERROR, function (errorType, errorDetailValue) {
+            setStatus("Chargement " + type + "…");
+            if (!window.mpegts || !mpegts.isSupported()) { showError("MSE non supporté."); return; }
+            tsPlayer = mpegts.createPlayer({ type: type === "flv" ? "flv" : "mpegts", isLive: true, url: url }, { enableWorker: true, enableStashBuffer: false });
+            tsPlayer.on(mpegts.Events.ERROR, function(et, ed) {
                 if (id !== attemptId) return;
-                console.error("Erreur MPEG-TS/FLV :", errorType, errorDetailValue);
-                if (!usingProxy || currentProxyIndex < PROXIES.length) {
-                    setStatus("Erreur réseau, bascule vers un autre proxy…");
-                    tryNextProxy();
-                } else {
-                    showError("Erreur " + type.toUpperCase() + " : " + String(errorType) + " / " + String(errorDetailValue));
-                }
+                showError("Erreur " + type + ": " + et + " / " + ed);
             });
-
-            tsPlayer.on(mpegts.Events.MEDIA_INFO, function () {
+            tsPlayer.on(mpegts.Events.MEDIA_INFO, function() {
                 if (id !== attemptId) return;
-                setStatus(type.toUpperCase() + " chargé — démarrage…");
-                requestPlay(id);
+                setStatus(type + " prêt"); requestPlay(id);
             });
-
-            try {
-                tsPlayer.attachMediaElement(video);
-                tsPlayer.load();
-            } catch (e) {
-                showError("Erreur d'attachement " + type.toUpperCase() + " : " + e.message);
-                return;
-            }
-
+            tsPlayer.attachMediaElement(video);
+            tsPlayer.load();
             requestPlay(id);
         }
-
-        /* ------------------------------------------------------------------
-         * 12. Lecture native
-         * ------------------------------------------------------------------ */
+        
         function playNative(url, id) {
-            setStatus("Ouverture du flux vidéo…" + (usingProxy ? " (proxy)" : ""));
-            video.src = url;
-            video.load();
-            requestPlay(id);
+            setStatus("Ouverture…");
+            video.src = url; video.load(); requestPlay(id);
         }
-
-        /* ------------------------------------------------------------------
-         * 13. Écouteurs vidéo
-         * ------------------------------------------------------------------ */
-        video.addEventListener("playing", function () {
-            playing = true;
-            clearLoadTimeout();
-            clearError();
-            setStatus("Lecture en cours" + (usingProxy ? " (via proxy)" : ""));
-        });
-
-        video.addEventListener("waiting", function () {
-            setStatus("Chargement du flux…");
-        });
-
-        video.addEventListener("stalled", function () {
-            setStatus("Attente du réseau…");
-        });
-
-        video.addEventListener("error", function () {
-            const err = video.error;
-            if (!err) return;
+        
+        video.addEventListener("playing", function() { playing = true; clearLoadTimeout(); clearError(); setStatus("Lecture en cours"); });
+        video.addEventListener("waiting", function() { setStatus("Chargement…"); });
+        video.addEventListener("error", function() {
             if (hlsPlayer || tsPlayer) return;
-
-            // Erreur native -> on tente le proxy suivant
-            if (!usingProxy || currentProxyIndex < PROXIES.length) {
-                setStatus("Erreur native, bascule vers un autre proxy…");
-                tryNextProxy();
-                return;
-            }
-
-            const messages = {
-                1: "Lecture interrompue.",
-                2: "Erreur réseau pendant le chargement.",
-                3: "Erreur de décodage : données ou codec incompatibles.",
-                4: "Format non pris en charge ou source inaccessible."
-            };
-            showError((messages[err.code] || "Erreur vidéo inconnue.") + " Code : " + err.code);
+            const err = video.error;
+            if (err) showError("Erreur native code " + err.code);
         });
-
-        /* ------------------------------------------------------------------
-         * 14. Bouton Réessayer
-         * ------------------------------------------------------------------ */
-        retryBtn.addEventListener("click", function () {
+        
+        retryBtn.addEventListener("click", function() {
             if (retryLocked) return;
-            retryLocked = true;
-            retryBtn.disabled = true;
-            currentProxyIndex = 0;
-            usingProxy = false;
-            startPlayback(false);
-            setTimeout(function () {
-                retryLocked = false;
-                retryBtn.disabled = false;
-            }, 1500);
+            retryLocked = true; retryBtn.disabled = true;
+            startPlayback();
+            setTimeout(function() { retryLocked = false; retryBtn.disabled = false; }, 2000);
         });
-
-        /* ------------------------------------------------------------------
-         * 15. Nettoyage
-         * ------------------------------------------------------------------ */
+        
         window.addEventListener("pagehide", destroyPlayers);
-        window.addEventListener("beforeunload", destroyPlayers);
-
-        /* ------------------------------------------------------------------
-         * 16. Démarrage
-         * ------------------------------------------------------------------ */
-        startPlayback(false);
+        startPlayback();
     });
     </script>
-
 </body>
 </html>
