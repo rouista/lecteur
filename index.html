@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Rouita Player</title>
 
+    <!-- Bibliothèques du lecteur -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.min.js"></script>
 
@@ -34,6 +35,7 @@
             background: #000;
         }
 
+        /* Nom du lecteur en haut à gauche */
         #brand {
             position: absolute;
             top: 15px;
@@ -49,26 +51,6 @@
             letter-spacing: 1px;
             pointer-events: none;
             text-shadow: 0 0 8px rgba(32, 223, 130, .25);
-        }
-
-        #channel-info {
-            position: absolute;
-            top: 66px;
-            left: 18px;
-            z-index: 20;
-            max-width: calc(100% - 36px);
-            color: #fff;
-            background: rgba(0, 0, 0, .72);
-            padding: 8px 12px;
-            border-radius: 5px;
-            font-size: 14px;
-            overflow-wrap: anywhere;
-            pointer-events: none;
-        }
-
-        #channel-name {
-            color: #20df82;
-            font-weight: bold;
         }
 
         #status {
@@ -118,18 +100,17 @@
             cursor: pointer;
         }
 
+        #retry:disabled {
+            opacity: .6;
+            cursor: not-allowed;
+        }
+
         @media (max-width: 600px) {
             #brand {
                 top: 9px;
                 left: 9px;
                 font-size: 14px;
                 padding: 7px 9px;
-            }
-
-            #channel-info {
-                top: 52px;
-                left: 9px;
-                font-size: 12px;
             }
         }
     </style>
@@ -138,10 +119,6 @@
 <body>
 
     <div id="brand">📺 ROUITA PLAYER</div>
-
-    <div id="channel-info">
-        Chaîne : <span id="channel-name">En attente…</span>
-    </div>
 
     <div id="status">Initialisation…</div>
 
@@ -158,19 +135,32 @@
     document.addEventListener("DOMContentLoaded", function () {
         "use strict";
 
+        /* ------------------------------------------------------------------
+         * 1. Paramètres d'entrée
+         * ------------------------------------------------------------------ */
         const params = new URLSearchParams(location.search);
         const rawUrl = (params.get("url") || "").trim();
-        // Décodage éventuel d'une URL passée elle-même encodée
-        let videoUrl = rawUrl;
-        try { if (/^https?%3A/i.test(videoUrl)) videoUrl = decodeURIComponent(videoUrl); } catch (_) {}
 
+        // Décodage éventuel d'une URL doublement encodée
+        let videoUrl = rawUrl;
+        try {
+            if (/^https?%3A/i.test(videoUrl)) {
+                videoUrl = decodeURIComponent(videoUrl);
+            }
+        } catch (_) {}
+
+        /* ------------------------------------------------------------------
+         * 2. Références DOM
+         * ------------------------------------------------------------------ */
         const video = document.getElementById("video");
-        const channelName = document.getElementById("channel-name");
         const status = document.getElementById("status");
         const errorBox = document.getElementById("error-message");
         const errorDetail = document.getElementById("error-detail");
         const retryBtn = document.getElementById("retry");
 
+        /* ------------------------------------------------------------------
+         * 3. État du lecteur
+         * ------------------------------------------------------------------ */
         let hlsPlayer = null;
         let tsPlayer = null;
         let attemptId = 0;
@@ -179,6 +169,9 @@
         let playing = false;
         let retryLocked = false;
 
+        /* ------------------------------------------------------------------
+         * 4. Utilitaires UI
+         * ------------------------------------------------------------------ */
         function setStatus(message) {
             status.textContent = message;
         }
@@ -210,7 +203,9 @@
             }, ms || 25000);
         }
 
-        // Détection robuste du type de flux à partir de l'URL (chemin + query)
+        /* ------------------------------------------------------------------
+         * 5. Détection du type de flux
+         * ------------------------------------------------------------------ */
         function detectType(url) {
             let p = "";
             try {
@@ -228,35 +223,12 @@
             return "unknown";
         }
 
-        function getChannelName(url) {
-            const explicitName =
-                params.get("name") ||
-                params.get("channel") ||
-                params.get("title");
-
-            if (explicitName && explicitName.trim()) return explicitName.trim();
-
-            try {
-                const parsed = new URL(url);
-                let filename = decodeURIComponent(
-                    (parsed.pathname.split("/").pop() || "")
-                );
-                filename = filename
-                    .replace(/\.(m3u8|m3u|ts|m2ts|flv|mp4|m4v|m4a|webm|mp3|mov)$/i, "")
-                    .replace(/[_\-.]+/g, " ")
-                    .trim();
-
-                if (!filename || /^(index|live|stream|playlist|video|manifest|master)$/i.test(filename)) {
-                    return parsed.hostname || "Nom non disponible";
-                }
-                return filename;
-            } catch (_) {
-                return "Nom non disponible";
-            }
-        }
-
+        /* ------------------------------------------------------------------
+         * 6. Destruction des players
+         * ------------------------------------------------------------------ */
         function destroyPlayers() {
             clearLoadTimeout();
+
             if (hlsPlayer) {
                 try { hlsPlayer.destroy(); } catch (_) {}
                 hlsPlayer = null;
@@ -265,14 +237,19 @@
                 try { tsPlayer.destroy(); } catch (_) {}
                 tsPlayer = null;
             }
+
             try {
                 video.pause();
                 video.removeAttribute("src");
                 video.load();
             } catch (_) {}
+
             playing = false;
         }
 
+        /* ------------------------------------------------------------------
+         * 7. Lecture
+         * ------------------------------------------------------------------ */
         function requestPlay(id) {
             if (id !== attemptId) return;
             const p = video.play();
@@ -297,12 +274,9 @@
             destroyPlayers();
 
             if (!videoUrl) {
-                channelName.textContent = "Aucune chaîne";
                 showError("URL absente. Ajoutez ?url=ADRESSE_DU_FLUX à l'adresse du lecteur.");
                 return;
             }
-
-            channelName.textContent = getChannelName(videoUrl);
 
             let parsed;
             try {
@@ -325,20 +299,55 @@
                 playHls(videoUrl, id);
             } else if (type === "mpegts" || type === "flv") {
                 playMpegTs(videoUrl, type, id);
+            } else if (type === "mp4" || type === "webm" || type === "mp3") {
+                playNative(videoUrl, id);
             } else {
-                // Inconnu (ou mp4/webm) : on tente le natif d'abord,
-                // puis fallback HLS/mpegts en cas d'échec.
-                playNativeWithFallback(videoUrl, id, type);
+                // Type inconnu : on tente HLS d'abord (le plus courant)
+                if (window.Hls) {
+                    playHls(videoUrl, id);
+                } else {
+                    playNative(videoUrl, id);
+                }
             }
         }
 
-        // ------------------------------------------------------------------
-        // HLS
-        // ------------------------------------------------------------------
+        /* ------------------------------------------------------------------
+         * 8. HLS
+         * ------------------------------------------------------------------ */
         function playHls(url, id) {
             setStatus("Chargement HLS…");
 
-            if (window.Hls && Hls.isSupported()) {
+            // Cas 1 : HLS.js n'est pas chargé du tout
+            if (!window.Hls) {
+                // Tentative de fallback avec mpegts (certains serveurs .m3u8 renvoient en réalité du TS)
+                if (window.mpegts && mpegts.isSupported()) {
+                    setStatus("HLS.js non chargé, tentative MPEG-TS…");
+                    playMpegTs(url, "mpegts", id);
+                    return;
+                }
+                showError(
+                    "La bibliothèque HLS.js n'a pas pu être chargée. " +
+                    "Vérifiez votre connexion ou hébergez hls.js localement."
+                );
+                return;
+            }
+
+            // Cas 2 : HLS.js est chargé mais le navigateur ne supporte pas MSE
+            if (!Hls.isSupported()) {
+                if (video.canPlayType("application/vnd.apple.mpegurl")) {
+                    // Safari : lecture native
+                    playNative(url, id);
+                } else {
+                    showError(
+                        "Ce navigateur ne prend pas en charge Media Source Extensions, " +
+                        "impossible de lire le flux HLS."
+                    );
+                }
+                return;
+            }
+
+            // Cas 3 : lecture via HLS.js
+            try {
                 hlsPlayer = new Hls({
                     enableWorker: true,
                     lowLatencyMode: true,
@@ -353,50 +362,52 @@
                     fragLoadingTimeOut: 25000,
                     fragLoadingMaxRetry: 4
                 });
+            } catch (e) {
+                showError("Impossible d'initialiser HLS : " + e.message);
+                return;
+            }
 
-                hlsPlayer.on(Hls.Events.MANIFEST_PARSED, function () {
-                    if (id !== attemptId) return;
-                    setStatus("HLS prêt — démarrage…");
-                    requestPlay(id);
-                });
+            hlsPlayer.on(Hls.Events.MANIFEST_PARSED, function () {
+                if (id !== attemptId) return;
+                setStatus("HLS prêt — démarrage…");
+                requestPlay(id);
+            });
 
-                hlsPlayer.on(Hls.Events.ERROR, function (event, data) {
-                    if (id !== attemptId || !data.fatal) return;
-                    console.error("Erreur HLS :", data);
+            hlsPlayer.on(Hls.Events.ERROR, function (event, data) {
+                if (id !== attemptId || !data.fatal) return;
+                console.error("Erreur HLS :", data);
 
-                    if (data.type === Hls.ErrorTypes.MEDIA_ERROR && !recoveryAttempted) {
-                        recoveryAttempted = true;
-                        setStatus("Récupération du flux…");
-                        try { hlsPlayer.recoverMediaError(); } catch (_) {}
-                        return;
-                    }
-
-                    if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-                        showError("Erreur réseau HLS : " + data.details +
-                            ". Vérifiez l'URL, la connexion et les autorisations du serveur (CORS).");
-                    } else {
-                        showError("Erreur HLS : " + data.details +
-                            ". Le flux ou son codec peut être incompatible.");
-                    }
-                });
-
-                try {
-                    hlsPlayer.loadSource(url);
-                    hlsPlayer.attachMedia(video);
-                } catch (e) {
-                    showError("Impossible d'initialiser HLS : " + e.message);
+                if (data.type === Hls.ErrorTypes.MEDIA_ERROR && !recoveryAttempted) {
+                    recoveryAttempted = true;
+                    setStatus("Récupération du flux…");
+                    try { hlsPlayer.recoverMediaError(); } catch (_) {}
+                    return;
                 }
 
-            } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-                playNative(url, id);
-            } else {
-                showError("HLS n'est pas pris en charge par ce navigateur.");
+                if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                    showError(
+                        "Erreur réseau HLS : " + data.details +
+                        ". Vérifiez l'URL, la connexion et les autorisations CORS du serveur."
+                    );
+                } else {
+                    showError(
+                        "Erreur HLS : " + data.details +
+                        ". Le flux ou son codec peut être incompatible."
+                    );
+                }
+            });
+
+            try {
+                hlsPlayer.loadSource(url);
+                hlsPlayer.attachMedia(video);
+            } catch (e) {
+                showError("Impossible de charger le flux HLS : " + e.message);
             }
         }
 
-        // ------------------------------------------------------------------
-        // MPEG-TS / FLV
-        // ------------------------------------------------------------------
+        /* ------------------------------------------------------------------
+         * 9. MPEG-TS / FLV
+         * ------------------------------------------------------------------ */
         function playMpegTs(url, type, id) {
             setStatus("Chargement " + type.toUpperCase() + "…");
 
@@ -422,7 +433,10 @@
                     autoCleanupSourceBuffer: true
                 });
             } catch (e) {
-                showError("Impossible d'initialiser le lecteur " + type.toUpperCase() + " : " + e.message);
+                showError(
+                    "Impossible d'initialiser le lecteur " + type.toUpperCase() +
+                    " : " + e.message
+                );
                 return;
             }
 
@@ -454,9 +468,9 @@
             requestPlay(id);
         }
 
-        // ------------------------------------------------------------------
-        // Natif + fallback
-        // ------------------------------------------------------------------
+        /* ------------------------------------------------------------------
+         * 10. Lecture native
+         * ------------------------------------------------------------------ */
         function playNative(url, id) {
             setStatus("Ouverture du flux vidéo…");
             video.src = url;
@@ -464,25 +478,9 @@
             requestPlay(id);
         }
 
-        function playNativeWithFallback(url, id, type) {
-            // Pour les types connus natifs (mp4/webm/mp3), on tente le natif,
-            // puis fallback HLS → mpegts si erreur immédiate.
-            if (type === "mp4" || type === "webm" || type === "mp3") {
-                playNative(url, id);
-                return;
-            }
-
-            // Type inconnu : HLS d'abord (le plus courant pour les URLs sans extension)
-            if (window.Hls && Hls.isSupported()) {
-                playHls(url, id);
-            } else {
-                playNative(url, id);
-            }
-        }
-
-        // ------------------------------------------------------------------
-        // Écouteurs vidéo
-        // ------------------------------------------------------------------
+        /* ------------------------------------------------------------------
+         * 11. Écouteurs vidéo
+         * ------------------------------------------------------------------ */
         video.addEventListener("playing", function () {
             playing = true;
             clearLoadTimeout();
@@ -512,12 +510,15 @@
                 4: "Format non pris en charge ou source inaccessible."
             };
 
-            showError((messages[err.code] || "Erreur vidéo inconnue.") + " Code : " + err.code);
+            showError(
+                (messages[err.code] || "Erreur vidéo inconnue.") +
+                " Code : " + err.code
+            );
         });
 
-        // ------------------------------------------------------------------
-        // Bouton réessayer (verrouillé brièvement pour éviter le spam)
-        // ------------------------------------------------------------------
+        /* ------------------------------------------------------------------
+         * 12. Bouton Réessayer (anti-spam)
+         * ------------------------------------------------------------------ */
         retryBtn.addEventListener("click", function () {
             if (retryLocked) return;
             retryLocked = true;
@@ -529,9 +530,15 @@
             }, 1500);
         });
 
+        /* ------------------------------------------------------------------
+         * 13. Nettoyage
+         * ------------------------------------------------------------------ */
         window.addEventListener("pagehide", destroyPlayers);
         window.addEventListener("beforeunload", destroyPlayers);
 
+        /* ------------------------------------------------------------------
+         * 14. Démarrage
+         * ------------------------------------------------------------------ */
         startPlayback();
     });
     </script>
