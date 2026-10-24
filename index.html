@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -6,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Rouita Player</title>
 
-    <!-- Bibliothèques du lecteur d'origine -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.min.js"></script>
 
@@ -36,7 +34,6 @@
             background: #000;
         }
 
-        /* Nom du lecteur en haut à gauche */
         #brand {
             position: absolute;
             top: 15px;
@@ -54,7 +51,6 @@
             text-shadow: 0 0 8px rgba(32, 223, 130, .25);
         }
 
-        /* Nom de la chaîne en cours */
         #channel-info {
             position: absolute;
             top: 66px;
@@ -163,18 +159,25 @@
         "use strict";
 
         const params = new URLSearchParams(location.search);
-        const videoUrl = (params.get("url") || "").trim();
+        const rawUrl = (params.get("url") || "").trim();
+        // Décodage éventuel d'une URL passée elle-même encodée
+        let videoUrl = rawUrl;
+        try { if (/^https?%3A/i.test(videoUrl)) videoUrl = decodeURIComponent(videoUrl); } catch (_) {}
 
         const video = document.getElementById("video");
         const channelName = document.getElementById("channel-name");
         const status = document.getElementById("status");
         const errorBox = document.getElementById("error-message");
         const errorDetail = document.getElementById("error-detail");
+        const retryBtn = document.getElementById("retry");
 
         let hlsPlayer = null;
         let tsPlayer = null;
         let attemptId = 0;
         let recoveryAttempted = false;
+        let loadTimeout = null;
+        let playing = false;
+        let retryLocked = false;
 
         function setStatus(message) {
             status.textContent = message;
@@ -184,6 +187,7 @@
             errorDetail.textContent = message;
             errorBox.style.display = "block";
             setStatus("Échec de lecture");
+            clearLoadTimeout();
         }
 
         function clearError() {
@@ -191,34 +195,60 @@
             errorDetail.textContent = "";
         }
 
-        // Détermine le nom affiché sans inventer le nom officiel.
+        function clearLoadTimeout() {
+            if (loadTimeout) {
+                clearTimeout(loadTimeout);
+                loadTimeout = null;
+            }
+        }
+
+        function armLoadTimeout(id, ms) {
+            clearLoadTimeout();
+            loadTimeout = setTimeout(function () {
+                if (id !== attemptId || playing) return;
+                showError("Délai de chargement dépassé. Le flux ne répond pas ou est inaccessible.");
+            }, ms || 25000);
+        }
+
+        // Détection robuste du type de flux à partir de l'URL (chemin + query)
+        function detectType(url) {
+            let p = "";
+            try {
+                const u = new URL(url);
+                p = (u.pathname + u.search).toLowerCase();
+            } catch (_) {
+                p = url.toLowerCase();
+            }
+            if (/\.m3u8(\b|$)/.test(p) || /type=m3u8/.test(p) || /format=m3u8/.test(p)) return "hls";
+            if (/\.(ts|m2ts|mts)(\b|$)/.test(p)) return "mpegts";
+            if (/\.flv(\b|$)/.test(p)) return "flv";
+            if (/\.(mp4|m4v|m4a|mov)(\b|$)/.test(p)) return "mp4";
+            if (/\.webm(\b|$)/.test(p)) return "webm";
+            if (/\.mp3(\b|$)/.test(p)) return "mp3";
+            return "unknown";
+        }
+
         function getChannelName(url) {
             const explicitName =
                 params.get("name") ||
                 params.get("channel") ||
                 params.get("title");
 
-            if (explicitName && explicitName.trim()) {
-                return explicitName.trim();
-            }
+            if (explicitName && explicitName.trim()) return explicitName.trim();
 
             try {
                 const parsed = new URL(url);
                 let filename = decodeURIComponent(
-                    parsed.pathname.split("/").pop() || ""
+                    (parsed.pathname.split("/").pop() || "")
                 );
-
                 filename = filename
-                    .replace(/\.(m3u8|m3u|ts|m2ts|flv|mp4|m4v|webm)$/i, "")
-                    .replace(/[_-]+/g, " ")
+                    .replace(/\.(m3u8|m3u|ts|m2ts|flv|mp4|m4v|m4a|webm|mp3|mov)$/i, "")
+                    .replace(/[_\-.]+/g, " ")
                     .trim();
 
-                // Ne pas afficher un identifiant technique comme
-                // s'il s'agissait forcément du nom de la chaîne.
-                if (!filename || /^(index|live|stream|playlist|video)$/i.test(filename)) {
-                    return "Nom non disponible";
+                if (!filename || /^(index|live|stream|playlist|video|manifest|master)$/i.test(filename)) {
+                    return parsed.hostname || "Nom non disponible";
                 }
-
                 return filename;
             } catch (_) {
                 return "Nom non disponible";
@@ -226,47 +256,49 @@
         }
 
         function destroyPlayers() {
+            clearLoadTimeout();
             if (hlsPlayer) {
-                hlsPlayer.destroy();
+                try { hlsPlayer.destroy(); } catch (_) {}
                 hlsPlayer = null;
             }
-
             if (tsPlayer) {
-                tsPlayer.destroy();
+                try { tsPlayer.destroy(); } catch (_) {}
                 tsPlayer = null;
             }
-
-            video.pause();
-            video.removeAttribute("src");
-            video.load();
+            try {
+                video.pause();
+                video.removeAttribute("src");
+                video.load();
+            } catch (_) {}
+            playing = false;
         }
 
         function requestPlay(id) {
             if (id !== attemptId) return;
-
-            video.play().catch(function (error) {
-                if (id !== attemptId) return;
-
-                if (error.name === "NotAllowedError") {
-                    setStatus("Cliquez sur ▶ pour démarrer la lecture");
-                } else {
-                    console.warn("Lecture :", error);
-                }
-            });
+            const p = video.play();
+            if (p && typeof p.catch === "function") {
+                p.catch(function (error) {
+                    if (id !== attemptId) return;
+                    if (error && error.name === "NotAllowedError") {
+                        setStatus("Cliquez sur ▶ pour démarrer la lecture");
+                    } else {
+                        console.warn("Lecture :", error);
+                    }
+                });
+            }
         }
 
         function startPlayback() {
             const id = ++attemptId;
             recoveryAttempted = false;
+            playing = false;
 
             clearError();
             destroyPlayers();
 
             if (!videoUrl) {
                 channelName.textContent = "Aucune chaîne";
-                showError(
-                    "URL absente. Ajoutez ?url=ADRESSE_DU_FLUX à l'adresse du lecteur."
-                );
+                showError("URL absente. Ajoutez ?url=ADRESSE_DU_FLUX à l'adresse du lecteur.");
                 return;
             }
 
@@ -285,27 +317,24 @@
                 return;
             }
 
-            const path = parsed.pathname.toLowerCase();
+            armLoadTimeout(id, 25000);
 
-            const isHls = /\.m3u8$/.test(path);
-            const isTs = /\.(ts|m2ts)$/.test(path);
-            const isFlv = /\.flv$/.test(path);
-            const isMp4 = /\.(mp4|m4v|m4a)$/.test(path);
-            const isWebm = /\.webm$/.test(path);
+            const type = detectType(videoUrl);
 
-            if (isHls) {
+            if (type === "hls") {
                 playHls(videoUrl, id);
-            } else if (isTs || isFlv) {
-                playMpegTs(videoUrl, isFlv ? "flv" : "mpegts", id);
-            } else if (isMp4 || isWebm) {
-                playNative(videoUrl, id);
+            } else if (type === "mpegts" || type === "flv") {
+                playMpegTs(videoUrl, type, id);
             } else {
-                // Pour les URL sans extension reconnaissable :
-                // tentative native, sans supposer qu'il s'agit de HLS.
-                playNative(videoUrl, id);
+                // Inconnu (ou mp4/webm) : on tente le natif d'abord,
+                // puis fallback HLS/mpegts en cas d'échec.
+                playNativeWithFallback(videoUrl, id, type);
             }
         }
 
+        // ------------------------------------------------------------------
+        // HLS
+        // ------------------------------------------------------------------
         function playHls(url, id) {
             setStatus("Chargement HLS…");
 
@@ -313,16 +342,16 @@
                 hlsPlayer = new Hls({
                     enableWorker: true,
                     lowLatencyMode: true,
-
-                    // Tampon modéré pour accélérer le démarrage
-                    // et limiter l'utilisation de la mémoire.
                     maxBufferLength: 8,
                     maxMaxBufferLength: 15,
                     backBufferLength: 15,
-
-                    // Synchronisation adaptée aux flux en direct.
                     liveSyncDurationCount: 3,
-                    liveMaxLatencyDurationCount: 6
+                    liveMaxLatencyDurationCount: 6,
+                    manifestLoadingTimeOut: 15000,
+                    manifestLoadingMaxRetry: 3,
+                    levelLoadingTimeOut: 15000,
+                    fragLoadingTimeOut: 25000,
+                    fragLoadingMaxRetry: 4
                 });
 
                 hlsPlayer.on(Hls.Events.MANIFEST_PARSED, function () {
@@ -331,59 +360,43 @@
                     requestPlay(id);
                 });
 
-                hlsPlayer.on(Hls.Events.LEVEL_LOADED, function (event, data) {
-                    if (id !== attemptId) return;
-
-                    const details = data && data.details;
-                    const fragments = details && details.fragments;
-
-                    // Certains playlists fournissent un titre de segment.
-                    // Il ne s'agit pas nécessairement du nom de la chaîne.
-                    if (fragments && fragments.length && fragments[0].title) {
-                        console.debug("Métadonnée HLS :", fragments[0].title);
-                    }
-                });
-
                 hlsPlayer.on(Hls.Events.ERROR, function (event, data) {
                     if (id !== attemptId || !data.fatal) return;
-
                     console.error("Erreur HLS :", data);
 
-                    if (
-                        data.type === Hls.ErrorTypes.MEDIA_ERROR &&
-                        !recoveryAttempted
-                    ) {
+                    if (data.type === Hls.ErrorTypes.MEDIA_ERROR && !recoveryAttempted) {
                         recoveryAttempted = true;
                         setStatus("Récupération du flux…");
-                        hlsPlayer.recoverMediaError();
+                        try { hlsPlayer.recoverMediaError(); } catch (_) {}
                         return;
                     }
 
                     if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-                        showError(
-                            "Erreur réseau HLS : " + data.details +
-                            ". Vérifiez l'URL, la connexion et les autorisations du serveur."
-                        );
+                        showError("Erreur réseau HLS : " + data.details +
+                            ". Vérifiez l'URL, la connexion et les autorisations du serveur (CORS).");
                     } else {
-                        showError(
-                            "Erreur HLS : " + data.details +
-                            ". Le flux ou son codec peut être incompatible."
-                        );
+                        showError("Erreur HLS : " + data.details +
+                            ". Le flux ou son codec peut être incompatible.");
                     }
                 });
 
-                hlsPlayer.loadSource(url);
-                hlsPlayer.attachMedia(video);
+                try {
+                    hlsPlayer.loadSource(url);
+                    hlsPlayer.attachMedia(video);
+                } catch (e) {
+                    showError("Impossible d'initialiser HLS : " + e.message);
+                }
 
-            } else if (
-                video.canPlayType("application/vnd.apple.mpegurl")
-            ) {
+            } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
                 playNative(url, id);
             } else {
                 showError("HLS n'est pas pris en charge par ce navigateur.");
             }
         }
 
+        // ------------------------------------------------------------------
+        // MPEG-TS / FLV
+        // ------------------------------------------------------------------
         function playMpegTs(url, type, id) {
             setStatus("Chargement " + type.toUpperCase() + "…");
 
@@ -395,45 +408,55 @@
                 return;
             }
 
-            tsPlayer = mpegts.createPlayer({
-                type: type,
-                isLive: true,
-                url: url
-            }, {
-                enableWorker: true,
+            try {
+                tsPlayer = mpegts.createPlayer({
+                    type: type === "flv" ? "flv" : "mpegts",
+                    isLive: true,
+                    url: url
+                }, {
+                    enableWorker: true,
+                    enableStashBuffer: false,
+                    liveBufferLatencyChasing: true,
+                    lazyLoad: false,
+                    lazyLoadMaxDuration: 0,
+                    autoCleanupSourceBuffer: true
+                });
+            } catch (e) {
+                showError("Impossible d'initialiser le lecteur " + type.toUpperCase() + " : " + e.message);
+                return;
+            }
 
-                // Évite le gros tampon initial des flux en direct.
-                enableStashBuffer: false,
-
-                // Options de poursuite du direct, si prises en charge.
-                liveBufferLatencyChasing: true
-            });
-
-            tsPlayer.on(mpegts.Events.ERROR, function (
-                errorType, errorDetailValue, errorInfo
-            ) {
+            tsPlayer.on(mpegts.Events.ERROR, function (errorType, errorDetailValue, errorInfo) {
                 if (id !== attemptId) return;
-
-                console.error(
-                    "Erreur MPEG-TS/FLV :",
-                    errorType, errorDetailValue, errorInfo
-                );
-
+                console.error("Erreur MPEG-TS/FLV :", errorType, errorDetailValue, errorInfo);
                 showError(
                     "Erreur " + type.toUpperCase() + " : " +
-                    String(errorType) + " / " +
-                    String(errorDetailValue) +
+                    String(errorType) + " / " + String(errorDetailValue) +
                     ". Vérifiez le réseau, le format et le codec."
                 );
             });
 
-            tsPlayer.attachMediaElement(video);
-            tsPlayer.load();
+            tsPlayer.on(mpegts.Events.MEDIA_INFO, function () {
+                if (id !== attemptId) return;
+                setStatus(type.toUpperCase() + " chargé — démarrage…");
+                requestPlay(id);
+            });
+
+            try {
+                tsPlayer.attachMediaElement(video);
+                tsPlayer.load();
+            } catch (e) {
+                showError("Erreur d'attachement " + type.toUpperCase() + " : " + e.message);
+                return;
+            }
 
             setStatus(type.toUpperCase() + " chargé — démarrage…");
             requestPlay(id);
         }
 
+        // ------------------------------------------------------------------
+        // Natif + fallback
+        // ------------------------------------------------------------------
         function playNative(url, id) {
             setStatus("Ouverture du flux vidéo…");
             video.src = url;
@@ -441,7 +464,28 @@
             requestPlay(id);
         }
 
+        function playNativeWithFallback(url, id, type) {
+            // Pour les types connus natifs (mp4/webm/mp3), on tente le natif,
+            // puis fallback HLS → mpegts si erreur immédiate.
+            if (type === "mp4" || type === "webm" || type === "mp3") {
+                playNative(url, id);
+                return;
+            }
+
+            // Type inconnu : HLS d'abord (le plus courant pour les URLs sans extension)
+            if (window.Hls && Hls.isSupported()) {
+                playHls(url, id);
+            } else {
+                playNative(url, id);
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // Écouteurs vidéo
+        // ------------------------------------------------------------------
         video.addEventListener("playing", function () {
+            playing = true;
+            clearLoadTimeout();
             clearError();
             setStatus("Lecture en cours");
         });
@@ -458,6 +502,9 @@
             const err = video.error;
             if (!err) return;
 
+            // Si HLS/mpegts gère déjà l'erreur, ne pas double-afficher
+            if (hlsPlayer || tsPlayer) return;
+
             const messages = {
                 1: "Lecture interrompue.",
                 2: "Erreur réseau pendant le chargement.",
@@ -465,17 +512,25 @@
                 4: "Format non pris en charge ou source inaccessible."
             };
 
-            showError(
-                (messages[err.code] || "Erreur vidéo inconnue.") +
-                " Code : " + err.code
-            );
+            showError((messages[err.code] || "Erreur vidéo inconnue.") + " Code : " + err.code);
         });
 
-        document.getElementById("retry").addEventListener(
-            "click", startPlayback
-        );
+        // ------------------------------------------------------------------
+        // Bouton réessayer (verrouillé brièvement pour éviter le spam)
+        // ------------------------------------------------------------------
+        retryBtn.addEventListener("click", function () {
+            if (retryLocked) return;
+            retryLocked = true;
+            retryBtn.disabled = true;
+            startPlayback();
+            setTimeout(function () {
+                retryLocked = false;
+                retryBtn.disabled = false;
+            }, 1500);
+        });
 
         window.addEventListener("pagehide", destroyPlayers);
+        window.addEventListener("beforeunload", destroyPlayers);
 
         startPlayback();
     });
@@ -483,4 +538,3 @@
 
 </body>
 </html>
-
