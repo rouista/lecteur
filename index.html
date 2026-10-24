@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -35,7 +36,6 @@
             background: #000;
         }
 
-        /* Nom du lecteur en haut à gauche */
         #brand {
             position: absolute;
             top: 15px;
@@ -141,7 +141,6 @@
         const params = new URLSearchParams(location.search);
         const rawUrl = (params.get("url") || "").trim();
 
-        // Décodage éventuel d'une URL doublement encodée
         let videoUrl = rawUrl;
         try {
             if (/^https?%3A/i.test(videoUrl)) {
@@ -302,7 +301,6 @@
             } else if (type === "mp4" || type === "webm" || type === "mp3") {
                 playNative(videoUrl, id);
             } else {
-                // Type inconnu : on tente HLS d'abord (le plus courant)
                 if (window.Hls) {
                     playHls(videoUrl, id);
                 } else {
@@ -317,9 +315,7 @@
         function playHls(url, id) {
             setStatus("Chargement HLS…");
 
-            // Cas 1 : HLS.js n'est pas chargé du tout
             if (!window.Hls) {
-                // Tentative de fallback avec mpegts (certains serveurs .m3u8 renvoient en réalité du TS)
                 if (window.mpegts && mpegts.isSupported()) {
                     setStatus("HLS.js non chargé, tentative MPEG-TS…");
                     playMpegTs(url, "mpegts", id);
@@ -332,10 +328,8 @@
                 return;
             }
 
-            // Cas 2 : HLS.js est chargé mais le navigateur ne supporte pas MSE
             if (!Hls.isSupported()) {
                 if (video.canPlayType("application/vnd.apple.mpegurl")) {
-                    // Safari : lecture native
                     playNative(url, id);
                 } else {
                     showError(
@@ -346,7 +340,6 @@
                 return;
             }
 
-            // Cas 3 : lecture via HLS.js
             try {
                 hlsPlayer = new Hls({
                     enableWorker: true,
@@ -384,7 +377,14 @@
                     return;
                 }
 
-                if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                // Message d'erreur spécifique pour CORS
+                if (data.details === "manifestLoadError") {
+                    showError(
+                        "Erreur réseau HLS : impossible de charger le manifeste. " +
+                        "Le serveur source refuse probablement les requêtes cross-origin (CORS). " +
+                        "Vérifiez la console pour plus de détails."
+                    );
+                } else if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
                     showError(
                         "Erreur réseau HLS : " + data.details +
                         ". Vérifiez l'URL, la connexion et les autorisations CORS du serveur."
@@ -500,7 +500,6 @@
             const err = video.error;
             if (!err) return;
 
-            // Si HLS/mpegts gère déjà l'erreur, ne pas double-afficher
             if (hlsPlayer || tsPlayer) return;
 
             const messages = {
