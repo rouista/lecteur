@@ -1,0 +1,1024 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Media Player — Tout-en-un</title>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script src="https://cdn.dashjs.org/latest/modern/umd/dash.all.min.js"></script>
+<style>
+  * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+  body { margin: 0; padding: 10px; background: #0d1117; color: #c9d1d9; height: 100vh; display: flex; flex-direction: column; }
+  .app { display: flex; gap: 10px; flex: 1; min-height: 0; }
+
+  /* ═══════════════════════════════════════════
+     SIDEBAR
+     ═══════════════════════════════════════════ */
+  .sidebar {
+    width: 400px; min-width: 320px; max-width: 60vw;
+    background: #161b22; border: 1px solid #30363d;
+    border-radius: 8px; padding: 10px;
+    display: flex; flex-direction: column;
+    gap: 10px; min-height: 0;
+  }
+
+  /* ═══════════════════════════════════════════
+     SECTION SOURCES (EN HAUT)
+     ═══════════════════════════════════════════ */
+  .sources-section {
+    flex-shrink: 0;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 10px;
+    display: flex; flex-direction: column;
+    gap: 8px;
+  }
+  .sources-header {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .sources-header .title {
+    flex: 1; font-size: 0.9rem; font-weight: 700;
+    color: #c9d1d9;
+  }
+  .add-source-btn {
+    padding: 6px 12px; background: #238636;
+    border: none; border-radius: 5px;
+    color: white; font-weight: 600;
+    cursor: pointer; font-size: 0.78rem;
+  }
+  .add-source-btn:hover { background: #2ea043; }
+
+  .sources-select {
+    width: 100%;
+    padding: 10px 12px;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #c9d1d9;
+    font-size: 0.9rem;
+    font-family: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    outline: none;
+  }
+  .sources-select:focus { border-color: #1f6feb; }
+  .sources-select option { background: #161b22; color: #c9d1d9; }
+  .sources-select optgroup { background: #0d1117; color: #8b949e; font-style: normal; font-weight: 700; }
+
+  .sources-actions { display: flex; gap: 6px; }
+  .src-btn {
+    flex: 1;
+    padding: 8px 10px;
+    border: none; border-radius: 5px;
+    cursor: pointer; font-weight: 600; font-size: 0.78rem;
+  }
+  .src-btn.load { background: #1f6feb; color: white; }
+  .src-btn.load:hover:not(:disabled) { background: #388bfd; }
+  .src-btn.load:disabled { opacity: 0.5; cursor: default; }
+  .src-btn.edit { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; }
+  .src-btn.edit:hover { background: #30363d; }
+  .src-btn.delete { background: #da3633; color: white; }
+  .src-btn.delete:hover { background: #f85149; }
+
+  /* ═══════════════════════════════════════════
+     SECTION CHAÎNES (EN BAS, GRANDE)
+     ═══════════════════════════════════════════ */
+  .channels-section {
+    flex: 1;
+    display: flex; flex-direction: column;
+    gap: 8px; min-height: 0;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 10px;
+    overflow: hidden;
+  }
+  .channels-header {
+    display: flex; align-items: center; gap: 8px;
+    flex-wrap: wrap;
+  }
+  .channels-header .title {
+    font-size: 0.88rem; font-weight: 700;
+    color: #c9d1d9; flex: 1;
+    word-break: break-word;
+  }
+  .channels-header .info {
+    font-size: 0.7rem; color: #8b949e;
+    flex-shrink: 0;
+  }
+
+  /* Select des catégories */
+  .category-select {
+    width: 100%;
+    padding: 10px 12px;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #c9d1d9;
+    font-size: 0.9rem;
+    font-family: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    outline: none;
+  }
+  .category-select:focus { border-color: #1f6feb; }
+  .category-select option { background: #161b22; color: #c9d1d9; }
+
+  .channels-search {
+    width: 100%; padding: 8px 12px;
+    background: #161b22; border: 1px solid #30363d;
+    border-radius: 6px; color: #c9d1d9;
+    font-size: 0.85rem; outline: none;
+  }
+  .channels-search:focus { border-color: #1f6feb; }
+
+  /* Liste des chaînes avec scroll */
+  .channels-list {
+    flex: 1; overflow-y: auto;
+    display: flex; flex-direction: column;
+    gap: 6px; min-height: 0;
+    padding-right: 4px;
+  }
+  .channel-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; background: #21262d;
+    border-radius: 6px; cursor: pointer;
+    border: 1px solid transparent;
+    min-height: 46px;
+    flex-shrink: 0;
+  }
+  .channel-item:hover { background: #30363d; border-color: #3d444d; }
+  .channel-item.active { border-color: #1f6feb; background: #1c2d4a; }
+  .channel-item .flag { width: 22px; height: 15px; object-fit: cover; border-radius: 2px; flex-shrink: 0; }
+  .channel-item .info { flex: 1; min-width: 0; }
+  .channel-item .cname {
+    font-size: 0.9rem; font-weight: 600; line-height: 1.3;
+    word-break: break-word;
+  }
+  .channel-item .cmeta {
+    font-size: 0.7rem; color: #8b949e; margin-top: 2px;
+  }
+
+  /* ═══════════════════════════════════════════
+     PLAYER AGRANDI
+     ═══════════════════════════════════════════ */
+  .player-area { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .video-wrapper {
+    background: #000; border-radius: 8px; overflow: hidden;
+    border: 1px solid #30363d; width: 100%;
+    flex: 1;
+    min-height: 300px;
+    position: relative;
+    display: flex; align-items: center; justify-content: center;
+  }
+  video { width: 100%; height: 100%; display: block; background: #000; object-fit: contain; }
+  .player-controls {
+    display: flex; gap: 8px; flex-wrap: wrap;
+  }
+  .player-controls button {
+    padding: 8px 14px; background: #21262d; color: #c9d1d9;
+    border: 1px solid #30363d; border-radius: 5px;
+    cursor: pointer; font-weight: 600; font-size: 0.78rem;
+  }
+  .player-controls button:hover { background: #30363d; }
+  .url-display {
+    padding: 8px 12px; background: #161b22; border: 1px solid #30363d; border-radius: 6px;
+    font-family: 'Courier New', monospace; font-size: 0.72rem; word-break: break-all;
+    color: #7ee787; max-height: 60px; overflow-y: auto;
+  }
+  .status-bar { font-size: 0.82rem; color: #8b949e; padding: 4px; }
+  .status-bar.error { color: #f85149; }
+  .status-bar.warn { color: #d29922; }
+  .status-bar.ok { color: #7ee787; }
+
+  /* ═══════════════════════════════════════════
+     MODAL
+     ═══════════════════════════════════════════ */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7);
+    z-index: 100; align-items: center; justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+    padding: 20px; width: 460px; max-width: 90vw;
+    display: flex; flex-direction: column; gap: 12px;
+    max-height: 90vh; overflow-y: auto;
+  }
+  .modal h3 { margin: 0; font-size: 1rem; }
+  .modal label { font-size: 0.75rem; color: #8b949e; display: flex; flex-direction: column; gap: 4px; }
+  .modal input, .modal select, .modal textarea {
+    padding: 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px;
+    color: #c9d1d9; font-size: 0.85rem; font-family: inherit; width: 100%;
+  }
+  .modal textarea { resize: vertical; min-height: 80px; font-family: monospace; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+  .modal-actions button { padding: 8px 14px; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; }
+  .btn-cancel { background: #21262d; color: #c9d1d9; }
+  .btn-save { background: #238636; color: white; }
+  .btn-danger { background: #da3633; color: white; }
+  .pin-input { text-align: center; font-size: 1.4rem; letter-spacing: 0.4em; font-family: monospace; }
+
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
+  .empty { padding: 14px; color: #8b949e; font-size: 0.82rem; text-align: center; }
+
+  /* Plein écran */
+  .video-wrapper:fullscreen { border-radius: 0; border: none; }
+  .video-wrapper:fullscreen video { object-fit: contain; }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <div class="sidebar">
+
+    <!-- ═══ SOURCES ═══ -->
+    <div class="sources-section">
+      <div class="sources-header">
+        <span class="title">📡 Sources</span>
+        <button class="add-source-btn" id="addSourceBtn">＋ Ajouter</button>
+      </div>
+      <select class="sources-select" id="sourcesSelect"></select>
+      <div class="sources-actions" id="sourceActions" style="display:none;">
+        <button class="src-btn load" id="loadSourceBtn">▶ Charger</button>
+        <button class="src-btn edit" id="editSourceBtn" style="display:none;">✏️ Modifier</button>
+        <button class="src-btn delete" id="deleteSourceBtn" style="display:none;">🗑 Supprimer</button>
+      </div>
+    </div>
+
+    <!-- ═══ CHAÎNES ═══ -->
+    <div class="channels-section">
+      <div class="channels-header">
+        <span class="title" id="channelsTitle">📺 Chaînes</span>
+        <span class="info" id="channelsInfo">Sélectionnez une source</span>
+      </div>
+
+      <!-- Select catégories (affiché uniquement pour M3U) -->
+      <select class="category-select" id="categorySelect" style="display:none;"></select>
+
+      <!-- Recherche -->
+      <input type="search" class="channels-search" id="channelSearch" placeholder="🔍 Rechercher une chaîne..." style="display:none;" />
+
+      <!-- Liste chaînes avec scroll -->
+      <div class="channels-list" id="channelsList">
+        <div class="empty">Choisissez une source ci-dessus, puis cliquez sur ▶ Charger.</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══ PLAYER AGRANDI ═══ -->
+  <div class="player-area">
+    <div class="status-bar" id="statusBar">Prêt.</div>
+    <div class="video-wrapper" id="videoWrapper">
+      <video id="video" controls playsinline></video>
+    </div>
+    <div class="player-controls">
+      <button id="fullscreenBtn">⛶ Plein écran</button>
+      <button id="stopBtn">⏹ Arrêter</button>
+      <button id="copyUrlBtn">📋 Copier l'URL</button>
+      <button id="openUrlBtn">🔗 Ouvrir dans un onglet</button>
+    </div>
+    <div class="url-display" id="urlDisplay">Aucun flux sélectionné</div>
+  </div>
+</div>
+
+<!-- MODAL SOURCE -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <h3 id="modalTitle">Ajouter une source</h3>
+    <label>Nom <input id="mName" placeholder="Ma playlist" /></label>
+    <label>Type
+      <select id="mType">
+        <option value="auto">Auto-détection</option>
+        <option value="m3u">Playlist M3U / M3U8 / .list (catégories)</option>
+        <option value="json">JSON</option>
+        <option value="txt">TXT (1 URL/ligne)</option>
+        <option value="web">Site web externe</option>
+      </select>
+    </label>
+    <label>URL <input id="mUrl" placeholder="https://..." /></label>
+    <label id="mJsonLabel" style="display:none;">Contenu collé
+      <textarea id="mJson" placeholder='#EXTM3U&#10;#EXTINF:-1 group-title="News",France 24&#10;https://...m3u8'></textarea>
+    </label>
+    <label id="mPinLabel" style="display:none;">PIN optionnel (4 chiffres)
+      <input id="mPin" class="pin-input" maxlength="4" inputmode="numeric" placeholder="••••" />
+    </label>
+    <div class="modal-actions">
+      <button class="btn-cancel" id="mCancel">Annuler</button>
+      <button class="btn-danger" id="mDelete" style="display:none;">Supprimer</button>
+      <button class="btn-save" id="mSave">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL PIN -->
+<div class="modal-overlay" id="pinModal">
+  <div class="modal" style="width:320px;">
+    <h3>🔐 PIN requis</h3>
+    <input id="pinInput" class="pin-input" maxlength="4" inputmode="numeric" placeholder="••••" autocomplete="off" />
+    <div id="pinError" style="color:#f85149; font-size:0.8rem; display:none;">Code incorrect.</div>
+    <div class="modal-actions">
+      <button class="btn-cancel" id="pinCancel">Annuler</button>
+      <button class="btn-save" id="pinOk">Valider</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =========================================================================
+   SOURCES FIXES
+   ========================================================================= */
+const SOURCES = [
+  { id: 'Server 1', name: 'Server1', type: 'auto', url: 'http://190.61.101.11:7050/playlist.m3u8' },
+  { id: 'morocco', name: 'Maroc 🇲🇦', type: 'm3u', url: 'https://iptv-org.github.io/iptv/countries/ma.m3u' },
+  { id: 'tunisia', name: 'Tunisie 🇹🇳', type: 'm3u', url: 'https://iptv-org.github.io/iptv/countries/tn.m3u' },
+  { id: 'algeria', name: 'Algérie 🇩🇿', type: 'm3u', url: 'https://iptv-org.github.io/iptv/countries/dz.m3u' },
+  { id: 'egypt',   name: 'Égypte 🇪🇬', type: 'm3u', url: 'https://iptv-org.github.io/iptv/countries/eg.m3u' },
+  { id: 'france',  name: 'France 🇫🇷', type: 'm3u', url: 'https://iptv-org.github.io/iptv/countries/fr.m3u' },
+  { id: 'cat_news',   name: '📰 Actualités',  type: 'm3u', url: 'https://iptv-org.github.io/iptv/categories/news.m3u' },
+  { id: 'cat_sports', name: '⚽ Sport',        type: 'm3u', url: 'https://iptv-org.github.io/iptv/categories/sports.m3u' },
+  { id: 'cat_movies', name: '🎬 Cinéma',       type: 'm3u', url: 'https://iptv-org.github.io/iptv/categories/movies.m3u' },
+  { id: 'cat_music',  name: '🎵 Musique',      type: 'm3u', url: 'https://iptv-org.github.io/iptv/categories/music.m3u' },
+  { id: 'cat_kids',   name: '🧒 Jeunesse',     type: 'm3u', url: 'https://iptv-org.github.io/iptv/categories/kids.m3u' },
+  { id: 'cat_doc',    name: '📚 Documentaire', type: 'm3u', url: 'https://iptv-org.github.io/iptv/categories/documentary.m3u' }
+];
+
+const CONFIG = {
+  FETCH_TIMEOUT_MS: 20000,
+  STORAGE: { CUSTOM: 'iptv_custom_v8', UNLOCKED: 'iptv_unlocked_v8' }
+};
+
+/* =========================================================================
+   ÉTAT
+   ========================================================================= */
+let customSources = [], editingSourceId = null, pendingPinSource = null;
+let unlockedSources = new Set();
+let hls = null, dashPlayer = null;
+
+let activeSource = null;
+let sourceChannels = [];
+let sourceCategories = new Map();
+let activeCategory = '__all__';
+let searchQuery = '';
+let currentUrl = '';
+
+/* =========================================================================
+   DOM
+   ========================================================================= */
+const $ = id => document.getElementById(id);
+const sourcesSelect = $('sourcesSelect');
+const sourceActions = $('sourceActions');
+const loadSourceBtn = $('loadSourceBtn');
+const editSourceBtn = $('editSourceBtn');
+const deleteSourceBtn = $('deleteSourceBtn');
+const channelsList = $('channelsList');
+const channelsTitle = $('channelsTitle');
+const channelsInfo = $('channelsInfo');
+const categorySelect = $('categorySelect');
+const channelSearch = $('channelSearch');
+const video = $('video');
+const videoWrapper = $('videoWrapper');
+const urlDisplay = $('urlDisplay');
+const statusBar = $('statusBar');
+const modal = $('modal');
+const pinModal = $('pinModal');
+const pinInput = $('pinInput');
+const pinError = $('pinError');
+const mName = $('mName'), mType = $('mType'), mUrl = $('mUrl'),
+      mJson = $('mJson'), mPin = $('mPin');
+const mJsonLabel = $('mJsonLabel'), mPinLabel = $('mPinLabel'), mDelete = $('mDelete');
+
+/* =========================================================================
+   UTILS
+   ========================================================================= */
+const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function saveCustomSources() { try { localStorage.setItem(CONFIG.STORAGE.CUSTOM, JSON.stringify(customSources)); } catch {} }
+function loadCustomSources() { try { const d = JSON.parse(localStorage.getItem(CONFIG.STORAGE.CUSTOM) || '[]'); return Array.isArray(d) ? d : []; } catch { return []; } }
+function saveUnlocked() { try { sessionStorage.setItem(CONFIG.STORAGE.UNLOCKED, JSON.stringify([...unlockedSources])); } catch {} }
+function loadUnlocked() { try { const d = JSON.parse(sessionStorage.getItem(CONFIG.STORAGE.UNLOCKED) || '[]'); return new Set(Array.isArray(d) ? d : []); } catch { return new Set(); } }
+
+async function fetchWithTimeout(url, opts = {}) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), CONFIG.FETCH_TIMEOUT_MS);
+  try { return await fetch(url, { ...opts, signal: c.signal }); }
+  finally { clearTimeout(t); }
+}
+function setStatus(msg, cls = '') { statusBar.textContent = msg; statusBar.className = 'status-bar ' + cls; }
+
+function getAllSources() {
+  return [...customSources, ...SOURCES];
+}
+
+/* =========================================================================
+   DÉTECTION TYPE
+   ========================================================================= */
+function detectType(raw, url) {
+  const t = raw.trimStart();
+  if (t.startsWith('[') || t.startsWith('{')) return 'json';
+  if (/^#EXTM3U/i.test(t) || /#EXTINF:/i.test(t)) return 'm3u';
+  if (/\.list(?:[?#]|$)/i.test(url || '') && /https?:\/\//i.test(t)) return 'm3u';
+  if (/\.m3u8?(?:[?#]|$)/i.test(url || '')) return 'm3u';
+  return 'txt';
+}
+
+/* =========================================================================
+   PARSEUR M3U UNIVERSEL
+   ========================================================================= */
+function parseM3U(text) {
+  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/);
+  const out = [];
+  let pending = null;
+
+  const parseAttrs = (str) => {
+    const attrs = {};
+    const re = /([a-zA-Z0-9_-]+)\s*=\s*("([^"]*)"|'([^']*)'|([^,\s]+))/g;
+    let m;
+    while ((m = re.exec(str)) !== null) {
+      attrs[m[1].toLowerCase()] = m[3] ?? m[4] ?? m[5] ?? '';
+    }
+    return attrs;
+  };
+
+  for (let rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    if (line.startsWith('#EXTINF:')) {
+      const body = line.slice(8);
+      let title = '', attrsPart = body;
+      let inQuote = false, lastComma = -1;
+      for (let i = 0; i < body.length; i++) {
+        const ch = body[i];
+        if (ch === '"') inQuote = !inQuote;
+        else if (ch === ',' && !inQuote) lastComma = i;
+      }
+      if (lastComma >= 0) {
+        attrsPart = body.slice(0, lastComma);
+        title = body.slice(lastComma + 1).trim();
+      }
+      const attrs = parseAttrs(attrsPart);
+      pending = {
+        name: title || attrs['tvg-name'] || '',
+        country: attrs['tvg-country'] || '',
+        categories: attrs['group-title'] ? [attrs['group-title']] : [],
+        logo: attrs['tvg-logo'] || ''
+      };
+      continue;
+    }
+
+    if (line.startsWith('#') && !line.startsWith('#EXTINF')) continue;
+
+    let name = '', url = '';
+    if (/^https?:\/\//i.test(line)) {
+      url = line;
+    } else {
+      const idx = line.lastIndexOf(',');
+      if (idx > 0) {
+        const candidate = line.slice(idx + 1).trim();
+        if (/^https?:\/\//i.test(candidate)) {
+          name = line.slice(0, idx).trim();
+          url = candidate;
+        }
+      }
+    }
+    if (!url) continue;
+
+    out.push({
+      name: pending?.name || name || 'Sans nom',
+      url,
+      country: pending?.country || '',
+      categories: pending?.categories?.length ? pending.categories : ['Sans catégorie'],
+      logo: pending?.logo || ''
+    });
+    pending = null;
+  }
+  return out;
+}
+
+function normalizeCategories(c) {
+  if (Array.isArray(c.categories)) return c.categories.map(s => String(s).trim()).filter(Boolean);
+  if (typeof c.categories === 'string') return c.categories.split(/[,;|]/).map(s => s.trim()).filter(Boolean);
+  if (c.group) return [String(c.group).trim()];
+  if (c.genre) return [String(c.genre).trim()];
+  return [];
+}
+
+/* =========================================================================
+   RENDU : SELECT SOURCES
+   ========================================================================= */
+function renderSourcesList() {
+  const all = getAllSources();
+  sourcesSelect.innerHTML = '';
+
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = all.length ? '— Choisir une source —' : 'Aucune source';
+  sourcesSelect.appendChild(placeholder);
+
+  const customs = all.filter(s => s._custom);
+  const fixes = all.filter(s => !s._custom);
+
+  if (customs.length) {
+    const group = document.createElement('optgroup');
+    group.label = '⭐ Mes sources';
+    customs.forEach(src => {
+      const opt = document.createElement('option');
+      opt.value = src.id;
+      const lock = src.pin && !unlockedSources.has(src.id) ? '🔒 ' : '';
+      opt.textContent = `${lock}${src.name}`;
+      group.appendChild(opt);
+    });
+    sourcesSelect.appendChild(group);
+  }
+
+  if (fixes.length) {
+    const group = document.createElement('optgroup');
+    group.label = '📡 Sources fixes';
+    fixes.forEach(src => {
+      const opt = document.createElement('option');
+      opt.value = src.id;
+      const lock = src.pin && !unlockedSources.has(src.id) ? '🔒 ' : '';
+      opt.textContent = `${lock}${src.name}`;
+      group.appendChild(opt);
+    });
+    sourcesSelect.appendChild(group);
+  }
+
+  if (activeSource) sourcesSelect.value = activeSource.id;
+  updateSourceActions();
+}
+
+function updateSourceActions() {
+  const id = sourcesSelect.value;
+  if (!id) { sourceActions.style.display = 'none'; return; }
+
+  const src = getAllSources().find(s => s.id === id);
+  if (!src) { sourceActions.style.display = 'none'; return; }
+
+  sourceActions.style.display = 'flex';
+
+  const isActive = activeSource && activeSource.id === id;
+  loadSourceBtn.textContent = isActive ? '✓ Chargée' : '▶ Charger';
+  loadSourceBtn.disabled = isActive;
+
+  const isCustom = !!src._custom;
+  editSourceBtn.style.display = isCustom ? 'block' : 'none';
+  deleteSourceBtn.style.display = isCustom ? 'block' : 'none';
+}
+
+sourcesSelect.addEventListener('change', updateSourceActions);
+
+loadSourceBtn.onclick = () => {
+  const id = sourcesSelect.value;
+  if (!id) return;
+  const src = getAllSources().find(s => s.id === id);
+  if (src) selectSource(src);
+};
+
+editSourceBtn.onclick = () => {
+  const id = sourcesSelect.value;
+  if (id) openModal(id);
+};
+
+deleteSourceBtn.onclick = () => {
+  const id = sourcesSelect.value;
+  if (id) deleteSource(id);
+};
+
+/* =========================================================================
+   SÉLECTION SOURCE
+   ========================================================================= */
+function selectSource(src) {
+  if (src.pin && !unlockedSources.has(src.id)) {
+    pendingPinSource = src;
+    pinInput.value = ''; pinError.style.display = 'none';
+    pinModal.classList.add('open'); pinInput.focus();
+    return;
+  }
+  loadSource(src);
+}
+
+async function loadSource(src) {
+  activeSource = src;
+  searchQuery = '';
+  channelSearch.value = '';
+  activeCategory = '__all__';
+  sourceChannels = [];
+  sourceCategories = new Map();
+
+  channelsTitle.textContent = `📺 ${src.name}`;
+  channelsInfo.textContent = 'Chargement...';
+  channelsList.innerHTML = '<div class="empty">Chargement en cours...</div>';
+  channelSearch.style.display = 'none';
+  categorySelect.style.display = 'none';
+
+  renderSourcesList();
+
+  if (src.type === 'web') {
+    channelsList.innerHTML = `
+      <div class="empty" style="padding:24px;">
+        🌐 Source web externe<br><br>
+        <a href="${src.url}" target="_blank" rel="noopener"
+           style="color:#58a6ff;font-weight:600;text-decoration:none;font-size:1rem;">
+           Ouvrir ${escapeHtml(src.name)} ↗
+        </a>
+      </div>`;
+    channelsInfo.textContent = 'Lien externe';
+    setStatus(`Source web : ${src.name}`, 'warn');
+    return;
+  }
+
+  try {
+    let raw = null;
+    if (src.json && src.json.trim()) raw = src.json.trim();
+    else if (src.url) {
+      const r = await fetchWithTimeout(src.url, { mode: 'cors' });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      raw = await r.text();
+    }
+    if (!raw) throw new Error('Contenu vide.');
+
+    let detected = src.type || 'auto';
+    if (detected === 'auto') detected = detectType(raw, src.url);
+
+    let list = [];
+    let hasCategories = false;
+
+    if (detected === 'json') {
+      const data = JSON.parse(raw);
+      list = Array.isArray(data) ? data : (data.channels || data.streams || data.items || data.list || []);
+    } else if (detected === 'm3u') {
+      list = parseM3U(raw);
+      hasCategories = true; // M3U → filtre catégories
+    } else {
+      list = raw.split(/\r?\n/).map(l => l.trim())
+        .filter(l => l && !l.startsWith('#'))
+        .map((url, i) => ({ name: `Chaîne ${i + 1}`, url }));
+    }
+
+    list = list.map((c, i) => ({
+      name: c.name || c.title || c.channel || c.nom || `Chaîne ${i + 1}`,
+      url: c.url || c.link || c.stream || c.src || c.lien || '',
+      country: c.country || c.pays || '',
+      categories: normalizeCategories(c),
+      logo: c.logo || ''
+    })).filter(c => c.url);
+
+    sourceChannels = list;
+    sourceCategories = new Map();
+
+    list.forEach(ch => {
+      const cat = (ch.categories && ch.categories[0]) || 'Sans catégorie';
+      if (!sourceCategories.has(cat)) sourceCategories.set(cat, []);
+      sourceCategories.get(cat).push(ch);
+    });
+
+    channelsTitle.textContent = `📺 ${src.name}`;
+    channelsInfo.textContent = `${list.length} chaînes`;
+
+    // Afficher select catégories UNIQUEMENT pour M3U
+    if (hasCategories && sourceCategories.size > 1) {
+      renderCategorySelect();
+      categorySelect.style.display = 'block';
+    } else {
+      categorySelect.style.display = 'none';
+    }
+
+    channelSearch.style.display = list.length > 15 ? 'block' : 'none';
+
+    renderChannelsList();
+    setStatus(`${list.length} chaînes chargées depuis "${src.name}".`, 'ok');
+  } catch (e) {
+    console.error(e);
+    setStatus('Erreur : ' + e.message, 'error');
+    channelsList.innerHTML = `<div class="empty" style="color:#f85149;">Erreur : ${escapeHtml(e.message)}</div>`;
+    channelsInfo.textContent = 'Erreur';
+  }
+}
+
+/* =========================================================================
+   SELECT CATÉGORIES
+   ========================================================================= */
+function renderCategorySelect() {
+  categorySelect.innerHTML = '';
+
+  // Option "Toutes"
+  const allOpt = document.createElement('option');
+  allOpt.value = '__all__';
+  allOpt.textContent = `📁 Toutes les catégories (${sourceChannels.length})`;
+  categorySelect.appendChild(allOpt);
+
+  // Catégories triées
+  const cats = [...sourceCategories.keys()].sort((a, b) => {
+    if (a === 'Sans catégorie') return 1;
+    if (b === 'Sans catégorie') return -1;
+    return a.localeCompare(b);
+  });
+
+  cats.forEach(cat => {
+    const opt = document.createElement('option');
+    opt.value = cat;
+    opt.textContent = `📁 ${cat} (${sourceCategories.get(cat).length})`;
+    categorySelect.appendChild(opt);
+  });
+
+  categorySelect.value = activeCategory;
+}
+
+categorySelect.addEventListener('change', e => {
+  activeCategory = e.target.value;
+  renderChannelsList();
+});
+
+/* =========================================================================
+   LISTE DES CHAÎNES (avec scroll)
+   ========================================================================= */
+function renderChannelsList() {
+  channelsList.innerHTML = '';
+
+  let displayList = [];
+  if (activeCategory === '__all__') {
+    displayList = sourceChannels;
+  } else {
+    displayList = sourceCategories.get(activeCategory) || [];
+  }
+
+  // Filtre recherche
+  const q = searchQuery.toLowerCase().trim();
+  if (q) {
+    displayList = displayList.filter(ch => ch.name.toLowerCase().includes(q));
+  }
+
+  if (!displayList.length) {
+    channelsList.innerHTML = '<div class="empty">Aucune chaîne.</div>';
+    return;
+  }
+
+  displayList.forEach(ch => {
+    const d = document.createElement('div');
+    d.className = 'channel-item';
+    const flag = ch.country
+      ? `<img class="flag" src="https://flagcdn.com/w20/${ch.country.toLowerCase()}.png" onerror="this.style.display='none'">`
+      : '';
+    const catLabel = ch.categories && ch.categories.length ? ch.categories.join(', ') : '';
+    d.innerHTML = `${flag}<div class="info">
+      <div class="cname">${escapeHtml(ch.name)}</div>
+      ${catLabel ? `<div class="cmeta">${escapeHtml(catLabel)}</div>` : ''}
+    </div>`;
+    d.onclick = () => {
+      document.querySelectorAll('.channel-item').forEach(e => e.classList.remove('active'));
+      d.classList.add('active');
+      playStream(ch.url, ch.name);
+    };
+    channelsList.appendChild(d);
+  });
+}
+
+channelSearch.addEventListener('input', e => {
+  searchQuery = e.target.value;
+  renderChannelsList();
+});
+
+/* =========================================================================
+   SUPPRESSION SOURCE
+   ========================================================================= */
+function deleteSource(id) {
+  if (!confirm('Supprimer cette source ?')) return;
+  customSources = customSources.filter(s => s.id !== id);
+  saveCustomSources();
+  if (activeSource && activeSource.id === id) {
+    activeSource = null;
+    sourceChannels = [];
+    sourceCategories = new Map();
+    channelsList.innerHTML = '<div class="empty">Choisissez une source ci-dessus.</div>';
+    channelsTitle.textContent = '📺 Chaînes';
+    channelsInfo.textContent = 'Sélectionnez une source';
+    channelSearch.style.display = 'none';
+    categorySelect.style.display = 'none';
+  }
+  renderSourcesList();
+  setStatus('Source supprimée.');
+}
+
+/* =========================================================================
+   LECTEUR UNIVERSEL
+   =========================================================================
+   Gère : HLS (.m3u8 partout), DASH (.mpd), MP4/WebM/OGG/MKV/MP3/...
+   Détection par Content-Type + extension + fallback natif.
+   ========================================================================= */
+function destroyPlayers() {
+  if (hls) { try { hls.detachMedia(); hls.destroy(); } catch {} hls = null; }
+  if (dashPlayer) { try { dashPlayer.reset(); } catch {} dashPlayer = null; }
+  video.pause();
+  video.removeAttribute('src');
+  video.load();
+}
+
+async function playStream(url, name) {
+  currentUrl = url;
+  urlDisplay.textContent = url || 'Aucun flux';
+  setStatus(`Lecture : ${name}...`);
+
+  destroyPlayers();
+
+  if (!url) { setStatus('URL vide.', 'error'); return; }
+
+  const lower = url.split('#')[0].toLowerCase();
+  const cleanPath = lower.split('?')[0];
+
+  // --- 1. HLS (m3u8, y compris avec query string) ---
+  if (lower.includes('.m3u8')) {
+    if (window.Hls && Hls.isSupported()) {
+      hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+      hls.loadSource(url);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        video.play().catch(() => setStatus('Cliquez sur Lecture.', 'warn'));
+        setStatus(`Lecture HLS : ${name}`, 'ok');
+      });
+      hls.on(Hls.Events.ERROR, (_, data) => {
+        if (data.fatal) {
+          setStatus(`Erreur HLS : ${data.details}`, 'error');
+          try { hls.destroy(); } catch {}
+          hls = null;
+          // Fallback : essayer lecture native
+          tryNativePlayback(url);
+        }
+      });
+      return;
+    }
+    if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = url;
+      video.play()
+        .then(() => setStatus(`Lecture HLS natif : ${name}`, 'ok'))
+        .catch(() => setStatus('Cliquez sur Lecture.', 'warn'));
+      return;
+    }
+    setStatus('HLS non supporté par ce navigateur.', 'error');
+    return;
+  }
+
+  // --- 2. DASH (mpd) ---
+  if (cleanPath.endsWith('.mpd') || lower.includes('.mpd')) {
+    if (window.dashjs) {
+      dashPlayer = dashjs.MediaPlayer().create();
+      dashPlayer.initialize(video, url, true);
+      dashPlayer.on('streamInitialized', () => setStatus(`Lecture DASH : ${name}`, 'ok'));
+      dashPlayer.on('error', () => setStatus('Erreur DASH', 'error'));
+      return;
+    }
+    setStatus('DASH non chargé.', 'error');
+    return;
+  }
+
+  // --- 3. Formats natifs (MP4, WebM, OGG, MKV, MP3, AAC, M4V, etc.) ---
+  tryNativePlayback(url);
+}
+
+function tryNativePlayback(url) {
+  // Détection par Content-Type via HEAD (si CORS le permet), sinon direct
+  video.src = url;
+  video.load();
+
+  video.onloadedmetadata = () => {
+    setStatus(`Lecture : ${video.videoWidth}x${video.videoHeight}`, 'ok');
+  };
+  video.onerror = () => {
+    setStatus('Impossible de lire ce flux (format non supporté ou accès refusé).', 'error');
+  };
+  video.onplaying = () => {
+    setStatus('Lecture en cours.', 'ok');
+  };
+
+  video.play().catch(() => setStatus('Cliquez sur Lecture.', 'warn'));
+}
+
+/* =========================================================================
+   BOUTONS PLAYER
+   ========================================================================= */
+$('fullscreenBtn').onclick = () => {
+  if (videoWrapper.requestFullscreen) {
+    videoWrapper.requestFullscreen().catch(() => {});
+  } else if (videoWrapper.webkitRequestFullscreen) {
+    videoWrapper.webkitRequestFullscreen();
+  } else if (video.webkitEnterFullscreen) {
+    video.webkitEnterFullscreen();
+  }
+};
+
+$('stopBtn').onclick = () => {
+  destroyPlayers();
+  urlDisplay.textContent = 'Aucun flux sélectionné';
+  setStatus('Lecture arrêtée.');
+  document.querySelectorAll('.channel-item').forEach(e => e.classList.remove('active'));
+};
+
+$('copyUrlBtn').onclick = async () => {
+  if (!currentUrl) { setStatus('Aucune URL à copier.', 'warn'); return; }
+  try {
+    await navigator.clipboard.writeText(currentUrl);
+    setStatus('URL copiée.', 'ok');
+  } catch {
+    setStatus('Copie impossible.', 'error');
+  }
+};
+
+$('openUrlBtn').onclick = () => {
+  if (!currentUrl) { setStatus('Aucune URL à ouvrir.', 'warn'); return; }
+  window.open(currentUrl, '_blank', 'noopener');
+};
+
+/* =========================================================================
+   MODAL SOURCE
+   ========================================================================= */
+$('addSourceBtn').onclick = () => openModal(null);
+
+function updateJsonVisibility() {
+  const v = mType.value;
+  mJsonLabel.style.display = (v === 'auto' || v === 'm3u' || v === 'json' || v === 'txt') ? 'flex' : 'none';
+}
+mType.onchange = updateJsonVisibility;
+
+function openModal(id) {
+  editingSourceId = id;
+  mPinLabel.style.display = 'flex';
+  if (id) {
+    const s = customSources.find(x => x.id === id);
+    if (!s) return;
+    $('modalTitle').textContent = 'Modifier';
+    mName.value = s.name; mType.value = s.type || 'auto'; mUrl.value = s.url || '';
+    mJson.value = s.json || ''; mPin.value = s.pin || '';
+    mDelete.style.display = 'inline-block';
+  } else {
+    $('modalTitle').textContent = 'Ajouter';
+    mName.value = ''; mType.value = 'auto'; mUrl.value = ''; mJson.value = ''; mPin.value = '';
+    mDelete.style.display = 'none';
+  }
+  updateJsonVisibility();
+  modal.classList.add('open');
+}
+$('mCancel').onclick = () => modal.classList.remove('open');
+modal.onclick = e => { if (e.target === modal) modal.classList.remove('open'); };
+
+$('mSave').onclick = () => {
+  const name = mName.value.trim(), type = mType.value,
+        url = mUrl.value.trim(), json = mJson.value.trim(), pin = mPin.value.trim();
+  if (!name) return alert('Nom requis.');
+  if (!url && !json) return alert('URL ou contenu requis.');
+  if (pin && !/^\d{4}$/.test(pin)) return alert('PIN doit être 4 chiffres.');
+
+  if (editingSourceId) {
+    const s = customSources.find(x => x.id === editingSourceId);
+    Object.assign(s, { name, type, url, json, pin });
+  } else {
+    customSources.push({ id: 'src_' + Date.now(), name, type, url, json, pin, _custom: true });
+  }
+  saveCustomSources();
+  modal.classList.remove('open');
+  renderSourcesList();
+  setStatus('Source enregistrée.', 'ok');
+};
+
+mDelete.onclick = () => {
+  if (!editingSourceId) return;
+  deleteSource(editingSourceId);
+  modal.classList.remove('open');
+};
+
+/* =========================================================================
+   PIN
+   ========================================================================= */
+function closePinModal() { pinModal.classList.remove('open'); pendingPinSource = null; pinInput.value = ''; pinError.style.display = 'none'; }
+$('pinCancel').onclick = closePinModal;
+pinModal.onclick = e => { if (e.target === pinModal) closePinModal(); };
+
+function validatePin() {
+  if (!pendingPinSource) return;
+  if (pinInput.value === pendingPinSource.pin) {
+    unlockedSources.add(pendingPinSource.id);
+    saveUnlocked();
+    const src = pendingPinSource;
+    closePinModal();
+    loadSource(src);
+  } else {
+    pinError.style.display = 'block';
+    pinInput.value = '';
+    pinInput.focus();
+  }
+}
+$('pinOk').onclick = validatePin;
+pinInput.addEventListener('keydown', e => { if (e.key === 'Enter') validatePin(); });
+
+/* =========================================================================
+   INIT
+   ========================================================================= */
+customSources = loadCustomSources();
+unlockedSources = loadUnlocked();
+renderSourcesList();
+</script>
+</body>
+</html>
